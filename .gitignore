@@ -1,0 +1,48 @@
+# Dependências
+node_modules/
+
+# Build NestJS / TypeScript
+dist/
+build/
+*.tsbuildinfo
+
+# Testes e cobertura
+coverage/
+.nyc_output/
+
+# Variáveis de ambiente (não versionar segredos)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Ferramentas locais
+.eslintcache
+*.pid
+*.seed
+*.pid.lock
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDEs e editores
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Temporários
+tmp/
+temp/
+*.tmp
