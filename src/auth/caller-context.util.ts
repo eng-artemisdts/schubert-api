@@ -13,6 +13,8 @@ function header(req: Request, name: string): string | undefined {
   return undefined;
 }
 
+export type IngestBillingPlan = 'free' | 'starter' | 'pro';
+
 export type IngestCallerLogPayload = {
   auth0Sub: string;
   billingPlan: string;
@@ -72,4 +74,11 @@ export function buildIngestCallerLogPayload(
     scope: user?.scope ?? null,
     billingPlanSource,
   };
+}
+
+/** Plano normalizado para estratégia de transcrição (ingest). */
+export function resolveIngestBillingPlan(p: IngestCallerLogPayload): IngestBillingPlan {
+  const v = p.billingPlan.trim().toLowerCase();
+  if (v === 'starter' || v === 'pro') return v;
+  return 'free';
 }

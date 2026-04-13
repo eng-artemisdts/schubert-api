@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  Body,
   Controller,
   Get,
   HttpCode,
@@ -8,21 +7,13 @@ import {
   NotFoundException,
   Param,
   Post,
-  Req,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
-import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MusicRecognitionPort } from '../integrations/music-recognition/music-recognition.port';
 import { TrackIdentifyResponseDto } from './dto/track-identify-response.dto';
-import { TrackIngestResponseDto } from './dto/track-ingest-response.dto';
-import { buildIngestCallerLogPayload } from '../auth/caller-context.util';
-import type { JwtAuthUser } from '../auth/jwt.strategy';
-import { parseIngestMetaField } from './ingest-meta.util';
 import { TracksService } from './tracks.service';
-
-type RequestWithJwtUser = Request & { user?: JwtAuthUser };
 
 /** Limite da API AudD: ~10 MB e ~25 s de áudio; acima disso o servidor corta a ligação (ex.: `EPIPE` no cliente). */
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -40,7 +31,7 @@ export class TracksController {
   constructor(
     private readonly recognition: MusicRecognitionPort,
     private readonly tracks: TracksService,
-  ) {}
+  ) { }
 
   /**
    * Devolve o documento `Track` (com `artistId` populado) por `trackId` ou `spotifyId`.
@@ -100,41 +91,4 @@ export class TracksController {
     };
   }
 
-  /**
-   * Recebe o mesmo MP3 da identificação mais o objeto `song` (JSON) no campo multipart `meta`,
-   * para pipelines posteriores (ex.: detecção de acordes) sem repetir a chamada à AudD.
-   */
-  @Post('ingest')
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: MAX_BYTES },
-    }),
-  )
-  async ingest(
-    @Req() req: RequestWithJwtUser,
-    @UploadedFile() file: Express.Multer.File | undefined,
-    @Body('meta') metaRaw?: string,
-  ): Promise<TrackIngestResponseDto> {
-    console.log('[tracks/ingest] chamador', buildIngestCallerLogPayload(req, req.user));
-
-    if (!file?.buffer?.length) {
-      throw new BadRequestException(
-        'Envie um ficheiro MP3 no campo multipart `file`.',
-      );
-    }
-
-    if (!isMp3Upload(file)) {
-      throw new BadRequestException(
-        'Apenas ficheiros .mp3 são aceites para ingestão.',
-      );
-    }
-
-    const song = parseIngestMetaField(metaRaw);
-
-    return {
-      accepted: true,
-      song,
-    };
-  }
 }

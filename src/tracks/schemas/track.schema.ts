@@ -133,6 +133,10 @@ export class Track {
   @Prop({ trim: true, index: true })
   userId?: string;
 
+  /** Igual a `userId` (proprietário Auth0); campo explícito para integrações e queries. */
+  @Prop({ trim: true, index: true })
+  owner?: string;
+
   /** Afinação original da cifra (texto livre para a sidebar, ex.: «E standard»). */
   @Prop({ trim: true, default: '' })
   original_tune?: string;
