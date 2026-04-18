@@ -1,16 +1,22 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
   NotFoundException,
   Param,
+  Patch,
   Post,
+  Req,
+  UnauthorizedException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { JwtAuthUser } from '../auth/jwt.strategy';
 import { MusicRecognitionPort } from '../integrations/music-recognition/music-recognition.port';
 import { TrackIdentifyResponseDto } from './dto/track-identify-response.dto';
 import { TracksService } from './tracks.service';
@@ -25,6 +31,8 @@ function isMp3Upload(file: Express.Multer.File): boolean {
   const mp3Mime = mime === 'audio/mpeg' || mime === 'audio/mp3';
   return mp3Ext || mp3Mime;
 }
+
+type RequestWithJwtUser = Request & { user?: JwtAuthUser };
 
 @Controller('tracks')
 export class TracksController {
@@ -89,6 +97,32 @@ export class TracksController {
         ? (track.toJSON() as unknown as Record<string, unknown>)
         : null,
     };
+  }
+
+  /**
+   * Atualização parcial de acordes, `lyricsVariants` e/ou `sections` (apenas dono da faixa).
+   */
+  @Patch('by-key/:key')
+  async patchByKey(
+    @Param('key') key: string,
+    @Req() req: RequestWithJwtUser,
+    @Body()
+    body: {
+      chords?: unknown;
+      lyricsVariants?: Record<string, unknown>;
+      sections?: unknown;
+    },
+  ) {
+    const sub = req.user?.sub;
+    if (!sub?.trim()) {
+      throw new UnauthorizedException('Sessão inválida: falta identificador Auth0.');
+    }
+    const doc = await this.tracks.updateTranscriptionByPublicKey(key.trim(), sub.trim(), {
+      chords: body.chords,
+      lyricsVariants: body.lyricsVariants,
+      sections: body.sections,
+    });
+    return doc.toJSON();
   }
 
 }

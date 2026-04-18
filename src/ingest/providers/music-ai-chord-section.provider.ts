@@ -9,15 +9,9 @@ import MusicAi from '@music.ai/sdk';
 import type { ChordSectionAnalysisResult } from '../domain/chord-section-analysis.port';
 import { IChordSectionProvider } from '../domain/chord-section-analysis.port';
 import {
-  readMusicAiResultKeys,
   tryLoadMusicAiExportFromDir,
   tryLoadMusicAiSdkOutputDir,
 } from '../mappers/musicai-export-json.mapper';
-import {
-  logMusicAiApiResultPreview,
-  logMusicAiDownloadDirListing,
-  logMusicAiResultJsonFile,
-} from '../utils/music-ai-result-log.util';
 import {
   buildPlaceholderChord,
   buildPlaceholderSections,
@@ -113,7 +107,7 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
           original_tune: loaded.original_tune ?? '',
         };
       }
-      this.logger.warn(`MUSICAI_EXPORT_DIR sem chords/sections válidos: ${exportDir}`);
+      this.logger.warn(`MUSICAI_EXPORT_DIR sem exportação válida: ${exportDir}`);
     }
 
     const apiKey = this.config.get<string>('MUSIC_AI_API_KEY')?.trim();
@@ -140,7 +134,6 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
     const jobIdsToDelete: string[] = [];
 
     try {
-      this.logger.log(`Music.AI SDK (@music.ai/sdk): workflow «${workflow}»…`);
       await this.maybeLogWorkflowCatalog(client, workflow);
       const inputUrl = await client.uploadFile(audioPath);
       const params = this.buildJobParams(inputUrl);
@@ -156,34 +149,9 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
         throw new ServiceUnavailableException(`Music.AI: ${msg}`);
       }
 
-      logMusicAiApiResultPreview(
-        this.logger,
-        job.id,
-        job.workflow,
-        job.result as unknown as Record<string, unknown>,
-      );
-
       await client.downloadJobResults(job, outDir);
-      logMusicAiDownloadDirListing(this.logger, outDir);
-      logMusicAiResultJsonFile(this.logger, outDir);
 
-      const resultKeys = readMusicAiResultKeys(outDir);
-      if (resultKeys.length) {
-        this.logger.log(`Music.AI: chaves em result (meta) → ${resultKeys.join(', ')}`);
-      }
       const sectionsWorkflow = this.config.get<string>('MUSIC_AI_SECTIONS_WORKFLOW')?.trim();
-      const onlyChords =
-        resultKeys.length === 1 &&
-        resultKeys[0]?.toLowerCase() === 'chords' &&
-        !sectionsWorkflow;
-      if (onlyChords) {
-        this.logger.warn(
-          `Music.AI: o job só expõe «chords» em job.result (slug «${workflow}»). ` +
-            'Segundo a documentação ([API](https://music.ai/docs/api/reference), [SDK npm](https://www.npmjs.com/package/@music.ai/sdk)), `result` reflete apenas os outputs do workflow publicado. ' +
-            'O SDK não agrega outputs: publique o grafo com nó Output a expor chords + sections (+ key/tonalidade, ex. campo «key») e use o slug certo em MUSIC_AI_WORKFLOW. ' +
-            'Ou defina MUSIC_AI_SECTIONS_WORKFLOW para um segundo job (ex.: song-sections). Opcional: MUSIC_AI_LOG_WORKFLOWS=1; MUSIC_AI_JOB_EXTRA_PARAMS / MUSIC_AI_SECTIONS_JOB_EXTRA_PARAMS.',
-        );
-      }
 
       let parsed = tryLoadMusicAiSdkOutputDir(outDir);
 
@@ -191,7 +159,6 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
         await this.maybeLogWorkflowCatalog(client, sectionsWorkflow);
         const sectionsDir = join(outDir, 'sections-workflow-output');
         await mkdir(sectionsDir, { recursive: true });
-        this.logger.log(`Music.AI: segundo job — workflow «${sectionsWorkflow}» (secções)…`);
         const sectionsJobId = await client.addJob({
           name: `schubert-ingest-sections-${Date.now()}`,
           workflow: sectionsWorkflow,
@@ -200,20 +167,8 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
         jobIdsToDelete.push(sectionsJobId);
         try {
           const jobSections = await client.waitForJobCompletion(sectionsJobId);
-          if (jobSections.status === 'FAILED') {
-            const msg =
-              jobSections.error?.message ?? jobSections.error?.title ?? 'sections job failed';
-            this.logger.warn(`Music.AI workflow «${sectionsWorkflow}»: ${msg}`);
-          } else {
-            logMusicAiApiResultPreview(
-              this.logger,
-              jobSections.id,
-              jobSections.workflow,
-              jobSections.result as unknown as Record<string, unknown>,
-            );
+          if (jobSections.status !== 'FAILED') {
             await client.downloadJobResults(jobSections, sectionsDir);
-            logMusicAiDownloadDirListing(this.logger, sectionsDir);
-            logMusicAiResultJsonFile(this.logger, sectionsDir);
             const parsedSections = tryLoadMusicAiSdkOutputDir(sectionsDir);
             if (parsedSections?.sections?.length) {
               const base = parsed ?? {
@@ -228,34 +183,14 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
                 sections: parsedSections.sections,
                 original_tune: baseTune || secTune,
               };
-              this.logger.log(
-                `Music.AI: secções do workflow «${sectionsWorkflow}» → ${parsed.sections.length} secção(ões).`,
-              );
-            } else {
-              this.logger.warn(
-                `Music.AI: workflow «${sectionsWorkflow}» concluíu mas não foram encontradas secções reconhecíveis no output.`,
-              );
             }
           }
-        } catch (e) {
-          this.logger.warn(
-            `Music.AI workflow «${sectionsWorkflow}»: ${e instanceof Error ? e.message : String(e)}`,
-          );
+        } catch {
+          /* secções opcionais — falha silenciosa */
         }
       }
 
-      if (parsed) {
-        this.logger.log(
-          `Music.AI parse local: chords=${parsed.chords.length}, sections=${parsed.sections.length}, original_tune_len=${(parsed.original_tune ?? '').length}`,
-        );
-      } else {
-        this.logger.warn('Music.AI: tryLoadMusicAiSdkOutputDir retornou null (nada reconhecido).');
-      }
       if (parsed?.chords?.length || parsed?.sections?.length) {
-        const tune = (parsed.original_tune ?? '').trim();
-        this.logger.log(
-          `Music.AI: ${parsed.chords?.length ?? 0} acordes, ${parsed.sections?.length ?? 0} secções; tonalidade: ${tune ? `«${tune}»` : '(n/d)'}.`,
-        );
         return {
           chords: parsed.chords ?? [],
           sections: parsed.sections ?? [],
@@ -263,9 +198,6 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
         };
       }
 
-      this.logger.warn(
-        'Music.AI: job OK mas não foram encontrados chords/sections reconhecíveis no output do SDK. Ver logs acima (job.result + ficheiros). No editor, ligue «Root key» do nó Chords ao campo original_tune do Output.',
-      );
       return this.placeholder();
     } catch (e) {
       if (e instanceof ServiceUnavailableException) throw e;
@@ -282,10 +214,6 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
         for (const id of jobIdsToDelete) {
           void client.deleteJob(id).catch(() => undefined);
         }
-      } else if (jobIdsToDelete.length) {
-        this.logger.log(
-          `Music.AI: MUSIC_AI_KEEP_JOBS ativo — jobs não apagados: ${jobIdsToDelete.join(', ')}. GET https://api.music.ai/v1/job/<id> com a mesma API key.`,
-        );
       }
     }
   }

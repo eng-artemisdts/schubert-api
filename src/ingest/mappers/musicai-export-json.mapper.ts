@@ -302,19 +302,6 @@ function tryLoadSectionsFromLooseDirJson(dir: string): TranscriptionSectionSubdo
   return [];
 }
 
-/** Chaves do objeto `result` em `result.music-ai.json` (útil para logs / workflows desconhecidos). */
-export function readMusicAiResultKeys(outDir: string): string[] {
-  const metaPath = join(outDir, 'result.music-ai.json');
-  if (!existsSync(metaPath)) return [];
-  try {
-    const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as MusicAiResultFile;
-    const r = meta.result;
-    return r && typeof r === 'object' ? Object.keys(r) : [];
-  } catch {
-    return [];
-  }
-}
-
 /** Carrega `chords.json` e/ou `sections.json` de uma pasta de export Music.AI. */
 export function tryLoadMusicAiExportFromDir(
   dir: string,

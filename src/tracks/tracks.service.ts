@@ -1,9 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { RecognizedSongDto } from '../integrations/music-recognition/recognized-song.dto';
+import type { TranscriptionLyricsVariantsSubdoc } from './schemas/track.schema';
 import { Track, TrackDocument } from './schemas/track.schema';
+import { normalizeChordListFromClient } from './transcription-chord-normalize.util';
+import { normalizeSectionListFromClient } from './transcription-section-normalize.util';
 
 @Injectable()
 export class TracksService {
@@ -61,6 +68,63 @@ export class TracksService {
       })
       .populate('artistId')
       .exec();
+  }
+
+  /**
+   * Atualiza acordes, variantes de letra e/ou secções; só o dono (`owner` ou `userId`) pode gravar.
+   */
+  async updateTranscriptionByPublicKey(
+    key: string,
+    ownerSub: string,
+    body: {
+      chords?: unknown;
+      lyricsVariants?: Partial<TranscriptionLyricsVariantsSubdoc>;
+      sections?: unknown;
+    },
+  ): Promise<TrackDocument> {
+    const track = await this.findByPublicKey(key);
+    if (!track) {
+      throw new NotFoundException(`Nenhuma faixa com a chave «${key}».`);
+    }
+    const owner = (track as unknown as { owner?: string }).owner;
+    const uid = track.userId;
+    const allowed =
+      (typeof owner === 'string' && owner === ownerSub) ||
+      (typeof uid === 'string' && uid === ownerSub);
+    if (!allowed) {
+      throw new ForbiddenException('Sem permissão para editar esta faixa.');
+    }
+
+    if (body.chords !== undefined) {
+      const durationSec = track.meta?.duration_seconds;
+      track.chords = normalizeChordListFromClient(body.chords, durationSec);
+      track.markModified('chords');
+    }
+
+    if (body.lyricsVariants !== undefined) {
+      const cur = track.lyricsVariants ?? {};
+      const next: TranscriptionLyricsVariantsSubdoc = { ...cur };
+      if (body.lyricsVariants.ai !== undefined) {
+        next.ai = body.lyricsVariants.ai as TranscriptionLyricsVariantsSubdoc['ai'];
+      }
+      if (body.lyricsVariants.match !== undefined) {
+        next.match = body.lyricsVariants.match as TranscriptionLyricsVariantsSubdoc['match'];
+      }
+      track.lyricsVariants = next;
+      track.markModified('lyricsVariants');
+    }
+
+    if (body.sections !== undefined) {
+      track.sections = normalizeSectionListFromClient(body.sections);
+      track.markModified('sections');
+    }
+
+    await track.save();
+    const fresh = await this.findByPublicKey(key);
+    if (!fresh) {
+      throw new NotFoundException(`Faixa «${key}» não encontrada após atualização.`);
+    }
+    return fresh;
   }
 }
 
