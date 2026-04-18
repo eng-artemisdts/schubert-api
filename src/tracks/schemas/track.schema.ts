@@ -160,6 +160,10 @@ export class Track {
   @Prop({ type: MusicTranscriptionMetaSchema, required: false })
   meta?: MusicTranscriptionMetaSubdoc;
 
+  /** Capa (ex.: URL AudD em `cover_image_url` na identificação). */
+  @Prop({ trim: true, required: false })
+  coverImageUrl?: string;
+
   @Prop({ required: false })
   chordTimeOffsetSec?: number;
 }

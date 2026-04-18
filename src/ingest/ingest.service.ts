@@ -126,6 +126,7 @@ export class IngestService {
         songSlug = await this.slugService.allocateTrackSlug(artist._id, trackName);
       }
 
+      const coverFromSong = parsed.song?.cover_image_url?.trim();
       const payload = {
         artistId: artist._id,
         trackId,
@@ -140,6 +141,7 @@ export class IngestService {
         userId: auth0Sub,
         owner: auth0Sub,
         original_tune: workflowOriginalTune.trim(),
+        coverImageUrl: coverFromSong || existing?.coverImageUrl,
       };
 
       if (existing) {
