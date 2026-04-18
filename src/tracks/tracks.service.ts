@@ -7,10 +7,20 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
 import { RecognizedSongDto } from '../integrations/music-recognition/recognized-song.dto';
-import type { TranscriptionLyricsVariantsSubdoc } from './schemas/track.schema';
+import type {
+  LyricsSource,
+  TranscriptionLyricSegmentSubdoc,
+} from './schemas/track.schema';
 import { Track, TrackDocument } from './schemas/track.schema';
 import { normalizeChordListFromClient } from './transcription-chord-normalize.util';
 import { normalizeSectionListFromClient } from './transcription-section-normalize.util';
+
+export type TranscriptionPatchBody = {
+  chords?: unknown;
+  lyrics?: unknown;
+  lyricsSource?: LyricsSource;
+  sections?: unknown;
+};
 
 @Injectable()
 export class TracksService {
@@ -71,21 +81,68 @@ export class TracksService {
   }
 
   /**
-   * Atualiza acordes, variantes de letra e/ou secções; só o dono (`owner` ou `userId`) pode gravar.
+   * Resolve por slugs do artista e da faixa (`/cifras/:artistSlug/:songSlug`).
+   */
+  async findByArtistAndSongSlugs(
+    artistSlug: string,
+    songSlug: string,
+  ): Promise<TrackDocument | null> {
+    const a = artistSlug.trim().toLowerCase();
+    const s = songSlug.trim().toLowerCase();
+    if (!a || !s) return null;
+    const artist = await this.artistModel.findOne({ slug: a }).exec();
+    if (!artist) return null;
+    return this.trackModel
+      .findOne({ artistId: artist._id, slug: s })
+      .populate('artistId')
+      .exec();
+  }
+
+  /**
+   * Atualiza acordes, letra (`lyrics` / `lyricsSource`) e/ou secções; só o dono (`owner` ou `userId`) pode gravar.
    */
   async updateTranscriptionByPublicKey(
     key: string,
     ownerSub: string,
-    body: {
-      chords?: unknown;
-      lyricsVariants?: Partial<TranscriptionLyricsVariantsSubdoc>;
-      sections?: unknown;
-    },
+    body: TranscriptionPatchBody,
   ): Promise<TrackDocument> {
     const track = await this.findByPublicKey(key);
     if (!track) {
       throw new NotFoundException(`Nenhuma faixa com a chave «${key}».`);
     }
+    this.assertTrackOwner(track, ownerSub);
+    await this.applyTranscriptionPatch(track, body);
+    await track.save();
+    const fresh = await this.findByPublicKey(key);
+    if (!fresh) {
+      throw new NotFoundException(`Faixa «${key}» não encontrada após atualização.`);
+    }
+    return fresh;
+  }
+
+  async updateTranscriptionBySlugs(
+    artistSlug: string,
+    songSlug: string,
+    ownerSub: string,
+    body: TranscriptionPatchBody,
+  ): Promise<TrackDocument> {
+    const track = await this.findByArtistAndSongSlugs(artistSlug, songSlug);
+    if (!track) {
+      throw new NotFoundException(
+        `Nenhuma faixa com os slugs «${artistSlug}» / «${songSlug}».`,
+      );
+    }
+    this.assertTrackOwner(track, ownerSub);
+    await this.applyTranscriptionPatch(track, body);
+    await track.save();
+    const fresh = await this.findByArtistAndSongSlugs(artistSlug, songSlug);
+    if (!fresh) {
+      throw new NotFoundException(`Faixa não encontrada após atualização.`);
+    }
+    return fresh;
+  }
+
+  private assertTrackOwner(track: TrackDocument, ownerSub: string): void {
     const owner = (track as unknown as { owner?: string }).owner;
     const uid = track.userId;
     const allowed =
@@ -94,37 +151,32 @@ export class TracksService {
     if (!allowed) {
       throw new ForbiddenException('Sem permissão para editar esta faixa.');
     }
+  }
 
+  private async applyTranscriptionPatch(
+    track: TrackDocument,
+    body: TranscriptionPatchBody,
+  ): Promise<void> {
     if (body.chords !== undefined) {
       const durationSec = track.meta?.duration_seconds;
       track.chords = normalizeChordListFromClient(body.chords, durationSec);
       track.markModified('chords');
     }
 
-    if (body.lyricsVariants !== undefined) {
-      const cur = track.lyricsVariants ?? {};
-      const next: TranscriptionLyricsVariantsSubdoc = { ...cur };
-      if (body.lyricsVariants.ai !== undefined) {
-        next.ai = body.lyricsVariants.ai as TranscriptionLyricsVariantsSubdoc['ai'];
-      }
-      if (body.lyricsVariants.match !== undefined) {
-        next.match = body.lyricsVariants.match as TranscriptionLyricsVariantsSubdoc['match'];
-      }
-      track.lyricsVariants = next;
-      track.markModified('lyricsVariants');
+    if (body.lyrics !== undefined) {
+      track.lyrics = body.lyrics as TranscriptionLyricSegmentSubdoc[];
+      track.markModified('lyrics');
+    }
+
+    if (body.lyricsSource !== undefined) {
+      track.lyricsSource = body.lyricsSource;
+      track.markModified('lyricsSource');
     }
 
     if (body.sections !== undefined) {
       track.sections = normalizeSectionListFromClient(body.sections);
       track.markModified('sections');
     }
-
-    await track.save();
-    const fresh = await this.findByPublicKey(key);
-    if (!fresh) {
-      throw new NotFoundException(`Faixa «${key}» não encontrada após atualização.`);
-    }
-    return fresh;
   }
 }
 

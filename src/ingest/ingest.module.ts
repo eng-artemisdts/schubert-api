@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
 import { Artist, ArtistSchema } from '../artists/schemas/artist.schema';
+import { SlugModule } from '../slug/slug.module';
 import { Track, TrackSchema } from '../tracks/schemas/track.schema';
 import {
   AUDIOSHAKE_TRANSCRIPTION_PROVIDER,
@@ -23,6 +24,7 @@ import { LyricsTranscriptionStrategyFactory } from './strategies/lyrics-transcri
       { name: Track.name, schema: TrackSchema },
       { name: Artist.name, schema: ArtistSchema },
     ]),
+    SlugModule,
   ],
   controllers: [IngestController],
   providers: [

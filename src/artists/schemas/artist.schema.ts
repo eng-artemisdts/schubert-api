@@ -8,6 +8,10 @@ export class Artist {
   @Prop({ required: true, trim: true })
   name: string;
 
+  /** Slug URL (minúsculas, hífens), derivado do nome. */
+  @Prop({ trim: true, sparse: true, unique: true })
+  slug?: string;
+
   @Prop({ trim: true, sparse: true, unique: true })
   spotifyId?: string;
 }

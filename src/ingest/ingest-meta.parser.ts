@@ -23,7 +23,6 @@ function readTranscriptionMeta(o: Record<string, unknown>): MusicTranscriptionMe
   const name = str('name');
   const sourcePathParam = str('sourcePathParam');
   const trackId = str('trackId');
-  const lyricsVariant = str('lyricsVariant');
   const audioUrl = str('audioUrl');
   const duration_seconds = num('duration_seconds');
 
@@ -31,7 +30,6 @@ function readTranscriptionMeta(o: Record<string, unknown>): MusicTranscriptionMe
   if (name) meta.name = name;
   if (sourcePathParam) meta.sourcePathParam = sourcePathParam;
   if (trackId) meta.trackId = trackId;
-  if (lyricsVariant) meta.lyricsVariant = lyricsVariant;
   if (audioUrl) meta.audioUrl = audioUrl;
   if (duration_seconds !== undefined) meta.duration_seconds = duration_seconds;
 

@@ -19,10 +19,12 @@ import { resolveIngestBillingPlan } from '../auth/caller-context.util';
 import type { IChordSectionProvider } from './domain/chord-section-analysis.port';
 import type { ILyricsSearchProvider } from './domain/lyrics-search.port';
 import type {
+  LyricsSource,
   MusicTranscriptionMetaSubdoc,
   TranscriptionLyricSegmentSubdoc,
 } from '../tracks/schemas/track.schema';
 import { Artist, ArtistDocument } from '../artists/schemas/artist.schema';
+import { SlugService } from '../slug/slug.service';
 import { Track, TrackDocument } from '../tracks/schemas/track.schema';
 import { parseIngestMultipartMeta } from './ingest-meta.parser';
 import { CHORD_SECTION_PROVIDER, LYRICS_SEARCH_PROVIDER } from './ingest.tokens';
@@ -46,6 +48,7 @@ export class IngestService {
     private readonly transcriptionStrategyFactory: LyricsTranscriptionStrategyFactory,
     @InjectModel(Track.name) private readonly trackModel: Model<TrackDocument>,
     @InjectModel(Artist.name) private readonly artistModel: Model<ArtistDocument>,
+    private readonly slugService: SlugService,
   ) {}
 
   async run(input: IngestRunInput): Promise<TrackDocument> {
@@ -64,10 +67,8 @@ export class IngestService {
       const { chords, sections, original_tune: workflowOriginalTune } =
         await this.chordSectionProvider.analyze(tmpPath);
 
-      const lyricsVariants: {
-        ai?: TranscriptionLyricSegmentSubdoc[];
-        match?: TranscriptionLyricSegmentSubdoc[];
-      } = {};
+      let lyrics: TranscriptionLyricSegmentSubdoc[] = [];
+      let lyricsSource: LyricsSource = 'AI';
 
       const canLrclib = Boolean(parsed.song?.title && parsed.song?.artist);
       if (canLrclib) {
@@ -83,16 +84,18 @@ export class IngestService {
           durationSec,
         });
         if (match?.segments?.length) {
-          lyricsVariants.match = match.segments;
+          lyrics = match.segments;
+          lyricsSource = 'MATCH';
           this.logger.log(`Letra LRCLIB: ${match.segments.length} segmento(s).`);
         }
       }
 
-      if (!lyricsVariants.match?.length) {
+      if (!lyrics.length) {
         const tx = this.transcriptionStrategyFactory.select(billingPlan);
-        lyricsVariants.ai = await tx.transcribe(tmpPath, { language: 'pt' });
+        lyrics = await tx.transcribe(tmpPath, { language: 'pt' });
+        lyricsSource = 'AI';
         this.logger.log(
-          `Transcrição (${billingPlan === 'free' ? 'Whisper' : 'AudioShake'}): ${lyricsVariants.ai.length} segmento(s).`,
+          `Transcrição (${billingPlan === 'free' ? 'Whisper' : 'AudioShake'}): ${lyrics.length} segmento(s).`,
         );
       }
 
@@ -104,7 +107,9 @@ export class IngestService {
         'Untitled';
       const artistName = parsed.song?.artist?.trim() || 'Unknown Artist';
 
-      const artist = await this.ensureArtist(artistName);
+      const primarySpotifyArtistId =
+        parsed.song?.spotify_artist_ids?.find((id) => typeof id === 'string' && id.trim())?.trim();
+      const artist = await this.ensureArtist(artistName, primarySpotifyArtistId);
 
       const ownedLookupId = parsed.transcriptionMeta?.trackId?.trim();
       const existing =
@@ -116,14 +121,21 @@ export class IngestService {
         parsed.transcriptionMeta?.trackId?.trim() || parsed.song?.spotify_track_id?.trim();
       const trackId = existing?.trackId ?? (await this.allocateGlobalTrackId(preferredNewId));
 
+      let songSlug = existing?.slug;
+      if (!songSlug) {
+        songSlug = await this.slugService.allocateTrackSlug(artist._id, trackName);
+      }
+
       const payload = {
         artistId: artist._id,
         trackId,
+        slug: songSlug,
         name: trackName,
         spotifyId: parsed.song?.spotify_track_id?.trim() || undefined,
         chords,
         sections,
-        lyricsVariants,
+        lyrics,
+        lyricsSource,
         meta: mergedMeta,
         userId: auth0Sub,
         owner: auth0Sub,
@@ -162,11 +174,44 @@ export class IngestService {
     return doc as unknown as TrackDocument;
   }
 
-  private async ensureArtist(displayName: string): Promise<ArtistDocument> {
+  /**
+   * Garante um artista ligado ao Spotify quando há `spotifyArtistId`; caso contrário faz match por nome.
+   * Preenche `slug` em documentos antigos sem slug.
+   */
+  private async ensureArtist(
+    displayName: string,
+    spotifyArtistId: string | undefined,
+  ): Promise<ArtistDocument> {
     const name = displayName.trim() || 'Unknown Artist';
-    const found = await this.artistModel.findOne({ name }).exec();
-    if (found) return found;
-    return this.artistModel.create({ name });
+
+    if (spotifyArtistId) {
+      let doc = await this.artistModel.findOne({ spotifyId: spotifyArtistId }).exec();
+      if (doc) {
+        if (doc.name !== name) {
+          doc.name = name;
+          await doc.save();
+        }
+        if (!doc.slug) {
+          doc.slug = await this.slugService.allocateArtistSlug(doc.name);
+          await doc.save();
+        }
+        return doc;
+      }
+      const slug = await this.slugService.allocateArtistSlug(name);
+      return this.artistModel.create({ name, spotifyId: spotifyArtistId, slug });
+    }
+
+    const byName = await this.artistModel.findOne({ name }).exec();
+    if (byName) {
+      if (!byName.slug) {
+        byName.slug = await this.slugService.allocateArtistSlug(byName.name);
+        await byName.save();
+      }
+      return byName;
+    }
+
+    const slug = await this.slugService.allocateArtistSlug(name);
+    return this.artistModel.create({ name, slug });
   }
 
   private mergeTrackMeta(parsed: ReturnType<typeof parseIngestMultipartMeta>): MusicTranscriptionMetaSubdoc | undefined {

@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Public } from '../auth/public.decorator';
 import type { JwtAuthUser } from '../auth/jwt.strategy';
 import { MusicRecognitionPort } from '../integrations/music-recognition/music-recognition.port';
 import { TrackIdentifyResponseDto } from './dto/track-identify-response.dto';
@@ -42,8 +43,29 @@ export class TracksController {
   ) { }
 
   /**
-   * Devolve o documento `Track` (com `artistId` populado) por `trackId` ou `spotifyId`.
+   * Devolve o documento `Track` (com `artistId` populado) por slugs do artista e da música.
+   * Leitura pública (sem JWT); escrita continua em PATCH com dono.
    */
+  @Public()
+  @Get('by-slug/:artistSlug/:songSlug')
+  async findBySlug(
+    @Param('artistSlug') artistSlug: string,
+    @Param('songSlug') songSlug: string,
+  ) {
+    const track = await this.tracks.findByArtistAndSongSlugs(artistSlug, songSlug);
+    if (!track) {
+      throw new NotFoundException(
+        `Nenhuma faixa com os slugs «${artistSlug}» / «${songSlug}».`,
+      );
+    }
+    return track.toJSON();
+  }
+
+  /**
+   * Devolve o documento `Track` (com `artistId` populado) por `trackId` ou `spotifyId`.
+   * Leitura pública (sem JWT).
+   */
+  @Public()
   @Get('by-key/:key')
   async findByKey(@Param('key') key: string) {
     const track = await this.tracks.findByPublicKey(key);
@@ -100,7 +122,41 @@ export class TracksController {
   }
 
   /**
-   * Atualização parcial de acordes, `lyricsVariants` e/ou `sections` (apenas dono da faixa).
+   * Atualização parcial por slugs (`/cifras/:artistSlug/:songSlug`).
+   */
+  @Patch('by-slug/:artistSlug/:songSlug')
+  async patchBySlug(
+    @Param('artistSlug') artistSlug: string,
+    @Param('songSlug') songSlug: string,
+    @Req() req: RequestWithJwtUser,
+    @Body()
+    body: {
+      chords?: unknown;
+      lyrics?: unknown;
+      lyricsSource?: 'AI' | 'MATCH';
+      sections?: unknown;
+    },
+  ) {
+    const sub = req.user?.sub;
+    if (!sub?.trim()) {
+      throw new UnauthorizedException('Sessão inválida: falta identificador Auth0.');
+    }
+    const doc = await this.tracks.updateTranscriptionBySlugs(
+      artistSlug.trim(),
+      songSlug.trim(),
+      sub.trim(),
+      {
+        chords: body.chords,
+        lyrics: body.lyrics,
+        lyricsSource: body.lyricsSource,
+        sections: body.sections,
+      },
+    );
+    return doc.toJSON();
+  }
+
+  /**
+   * Atualização parcial de acordes, `lyrics`, `lyricsSource` e/ou `sections` (apenas dono da faixa).
    */
   @Patch('by-key/:key')
   async patchByKey(
@@ -109,7 +165,8 @@ export class TracksController {
     @Body()
     body: {
       chords?: unknown;
-      lyricsVariants?: Record<string, unknown>;
+      lyrics?: unknown;
+      lyricsSource?: 'AI' | 'MATCH';
       sections?: unknown;
     },
   ) {
@@ -119,7 +176,8 @@ export class TracksController {
     }
     const doc = await this.tracks.updateTranscriptionByPublicKey(key.trim(), sub.trim(), {
       chords: body.chords,
-      lyricsVariants: body.lyricsVariants,
+      lyrics: body.lyrics,
+      lyricsSource: body.lyricsSource,
       sections: body.sections,
     });
     return doc.toJSON();
