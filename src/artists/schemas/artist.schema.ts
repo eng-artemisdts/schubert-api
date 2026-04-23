@@ -14,6 +14,10 @@ export class Artist {
 
   @Prop({ trim: true, sparse: true, unique: true })
   spotifyId?: string;
+
+  /** Thumbnail para catálogos por artista (ex.: imagem de capa retornada na identificação). */
+  @Prop({ trim: true, required: false })
+  thumbImageUrl?: string;
 }
 
 export const ArtistSchema = SchemaFactory.createForClass(Artist);

@@ -59,7 +59,7 @@ export class IngestService {
     private readonly artistModel: Model<ArtistDocument>,
     private readonly slugService: SlugService,
     private readonly config: ConfigService,
-  ) {}
+  ) { }
 
   /**
    * Quando `INGEST_DISABLE_LYRICS_SEARCH` está definida como truthy (ex.: `1`, `true`, `yes`),
@@ -128,7 +128,7 @@ export class IngestService {
         const song = parsed.song!;
         const durationSec =
           typeof song.duration_ms === 'number' &&
-          Number.isFinite(song.duration_ms)
+            Number.isFinite(song.duration_ms)
             ? song.duration_ms / 1000
             : parsed.transcriptionMeta?.duration_seconds;
         const match = await this.lyricsSearchProvider.search({
@@ -166,24 +166,30 @@ export class IngestService {
       const primarySpotifyArtistId = parsed.song?.spotify_artist_ids
         ?.find((id) => typeof id === 'string' && id.trim())
         ?.trim();
+      const artistThumbUrl =
+        typeof parsed.song?.cover_image_url === 'string' &&
+        parsed.song.cover_image_url.trim()
+          ? parsed.song.cover_image_url.trim()
+          : undefined;
       const artist = await this.ensureArtist(
         artistName,
         primarySpotifyArtistId,
+        artistThumbUrl,
       );
 
       const variationOfTrackId = parsed.variationOfTrackId?.trim() || '';
       const ownedLookupId = parsed.transcriptionMeta?.trackId?.trim();
       const existing = variationOfTrackId
         ? await this.trackModel
-            .findOne({
-              variationOfTrackId,
-              owner: auth0Sub,
-            })
-            .exec()
+          .findOne({
+            variationOfTrackId,
+            owner: auth0Sub,
+          })
+          .exec()
         : ownedLookupId
           ? await this.trackModel
-              .findOne({ trackId: ownedLookupId, owner: auth0Sub })
-              .exec()
+            .findOne({ trackId: ownedLookupId, owner: auth0Sub })
+            .exec()
           : null;
 
       const preferredNewId =
@@ -197,10 +203,10 @@ export class IngestService {
         existing?.slug ??
         (variationOfTrackId
           ? await this.resolveSlugFromBaseTrack(
-              artist._id,
-              variationOfTrackId,
-              trackName,
-            )
+            artist._id,
+            variationOfTrackId,
+            trackName,
+          )
           : await this.slugService.allocateTrackSlug(artist._id, trackName));
 
       const coverFromSong = parsed.song?.cover_image_url?.trim();
@@ -229,6 +235,7 @@ export class IngestService {
         ...(variationOfTrackId ? { is_private: true as const } : {}),
         original_tune: resolvedOriginalTune,
         coverImageUrl: coverFromSong || existing?.coverImageUrl,
+        ...(parsed.capo_at !== undefined ? { capo_at: parsed.capo_at } : {}),
       };
 
       if (existing) {
@@ -277,6 +284,7 @@ export class IngestService {
   private async ensureArtist(
     displayName: string,
     spotifyArtistId: string | undefined,
+    thumbImageUrl: string | undefined,
   ): Promise<ArtistDocument> {
     const name = displayName.trim() || 'Unknown Artist';
 
@@ -287,12 +295,14 @@ export class IngestService {
       if (doc) {
         if (doc.name !== name) {
           doc.name = name;
-          await doc.save();
+        }
+        if (thumbImageUrl && doc.thumbImageUrl !== thumbImageUrl) {
+          doc.thumbImageUrl = thumbImageUrl;
         }
         if (!doc.slug) {
           doc.slug = await this.slugService.allocateArtistSlug(doc.name);
-          await doc.save();
         }
+        await doc.save();
         return doc;
       }
       const slug = await this.slugService.allocateArtistSlug(name);
@@ -300,20 +310,28 @@ export class IngestService {
         name,
         spotifyId: spotifyArtistId,
         slug,
+        ...(thumbImageUrl ? { thumbImageUrl } : {}),
       });
     }
 
     const byName = await this.artistModel.findOne({ name }).exec();
     if (byName) {
+      if (thumbImageUrl && byName.thumbImageUrl !== thumbImageUrl) {
+        byName.thumbImageUrl = thumbImageUrl;
+      }
       if (!byName.slug) {
         byName.slug = await this.slugService.allocateArtistSlug(byName.name);
-        await byName.save();
       }
+      await byName.save();
       return byName;
     }
 
     const slug = await this.slugService.allocateArtistSlug(name);
-    return this.artistModel.create({ name, slug });
+    return this.artistModel.create({
+      name,
+      slug,
+      ...(thumbImageUrl ? { thumbImageUrl } : {}),
+    });
   }
 
   private async resolveSlugFromBaseTrack(

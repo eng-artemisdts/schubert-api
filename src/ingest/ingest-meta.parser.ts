@@ -8,6 +8,8 @@ export type ParsedIngestMeta = {
   transcriptionMeta: MusicTranscriptionMetaSubdoc | null;
   variationOfTrackId: string | null;
   variationLabel: string | null;
+  /** Traste do capo (0–24), opcional no JSON `meta`. */
+  capo_at?: number;
 };
 
 function asRecord(raw: unknown): Record<string, unknown> {
@@ -50,8 +52,8 @@ function readRecognizedSong(
 
   const spotifyArtistIds = Array.isArray(o.spotify_artist_ids)
     ? o.spotify_artist_ids.filter(
-        (x): x is string => typeof x === 'string' && x.length > 0,
-      )
+      (x): x is string => typeof x === 'string' && x.length > 0,
+    )
     : [];
 
   const out: RecognizedSongDto = {
@@ -87,6 +89,7 @@ export function parseIngestMultipartMeta(raw: unknown): ParsedIngestMeta {
       transcriptionMeta: null,
       variationOfTrackId: null,
       variationLabel: null,
+      capo_at: undefined,
     };
   }
 
@@ -99,6 +102,7 @@ export function parseIngestMultipartMeta(raw: unknown): ParsedIngestMeta {
         transcriptionMeta: null,
         variationOfTrackId: null,
         variationLabel: null,
+        capo_at: undefined,
       };
     try {
       obj = JSON.parse(s) as unknown;
@@ -121,10 +125,18 @@ export function parseIngestMultipartMeta(raw: unknown): ParsedIngestMeta {
       ? o.variationLabel.trim().slice(0, 120)
       : '';
   const variationLabel = variationLabelRaw.length ? variationLabelRaw : null;
+
+  let capo_at: number | undefined;
+  const rawCapo = o['capo_at'];
+  if (typeof rawCapo === 'number' && Number.isFinite(rawCapo)) {
+    capo_at = Math.max(0, Math.min(24, Math.round(rawCapo)));
+  }
+
   return {
     song: readRecognizedSong(o),
     transcriptionMeta: readTranscriptionMeta(o),
     variationOfTrackId,
     variationLabel,
+    capo_at,
   };
 }
