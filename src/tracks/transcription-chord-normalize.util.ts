@@ -4,7 +4,10 @@ const BEATS_PER_BAR = 4;
 const DEFAULT_BPM = 120;
 const NC = 'N.C.';
 
-function secondsToBarBeat(seconds: number, bpm: number): { bar: number; beat: number } {
+function secondsToBarBeat(
+  seconds: number,
+  bpm: number,
+): { bar: number; beat: number } {
   const s = Math.max(0, seconds);
   const totalBeats = (s * bpm) / 60;
   const whole = Math.floor(totalBeats);
@@ -14,16 +17,25 @@ function secondsToBarBeat(seconds: number, bpm: number): { bar: number; beat: nu
   };
 }
 
-function estimateBpm(durationSec: number | undefined, chords: { start: number; end: number }[]): number {
+function estimateBpm(
+  durationSec: number | undefined,
+  chords: { start: number; end: number }[],
+): number {
   if (!durationSec || durationSec <= 0 || chords.length < 2) return DEFAULT_BPM;
   const last = Math.max(...chords.map((c) => c.end));
   if (last <= 0) return DEFAULT_BPM;
-  const approxBeats = Math.max(chords.length, Math.ceil((last / durationSec) * 32));
+  const approxBeats = Math.max(
+    chords.length,
+    Math.ceil((last / durationSec) * 32),
+  );
   const bpm = (approxBeats / last) * 60;
   return Math.min(200, Math.max(72, Math.round(bpm)));
 }
 
-function pickNum(o: Record<string, unknown>, keys: string[]): number | undefined {
+function pickNum(
+  o: Record<string, unknown>,
+  keys: string[],
+): number | undefined {
   for (const k of keys) {
     const v = o[k];
     if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -35,7 +47,11 @@ function pickNum(o: Record<string, unknown>, keys: string[]): number | undefined
   return undefined;
 }
 
-function pickStr(o: Record<string, unknown>, keys: string[], fallback: string): string {
+function pickStr(
+  o: Record<string, unknown>,
+  keys: string[],
+  fallback: string,
+): string {
   for (const k of keys) {
     const v = o[k];
     if (typeof v === 'string' && v.trim()) return v.trim();

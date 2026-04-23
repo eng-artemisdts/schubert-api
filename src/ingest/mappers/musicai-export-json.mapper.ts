@@ -11,7 +11,7 @@ function isChordEvent(x: unknown): x is TranscriptionChordEventSubdoc {
 }
 
 function isLikelyChordRow(x: unknown): boolean {
-  return !!x && typeof x === 'object' && 'chord_majmin' in (x as object);
+  return !!x && typeof x === 'object' && 'chord_majmin' in x;
 }
 
 /** Raiz array OU `{ chords: [...] }` / `chordMap` (output combinado do workflow). */
@@ -19,7 +19,14 @@ function extractChordsFromRaw(raw: unknown): TranscriptionChordEventSubdoc[] {
   if (Array.isArray(raw)) return raw.filter(isChordEvent);
   if (raw && typeof raw === 'object') {
     const o = raw as Record<string, unknown>;
-    for (const k of ['chords', 'chordMap', 'chordmap', 'chord_map', 'events', 'chordEvents']) {
+    for (const k of [
+      'chords',
+      'chordMap',
+      'chordmap',
+      'chord_map',
+      'events',
+      'chordEvents',
+    ]) {
       const inner = o[k];
       if (Array.isArray(inner)) {
         const c = inner.filter(isChordEvent);
@@ -30,7 +37,10 @@ function extractChordsFromRaw(raw: unknown): TranscriptionChordEventSubdoc[] {
   return [];
 }
 
-function pickNumber(o: Record<string, unknown>, keys: string[]): number | undefined {
+function pickNumber(
+  o: Record<string, unknown>,
+  keys: string[],
+): number | undefined {
   for (const k of keys) {
     const v = o[k];
     if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -68,10 +78,19 @@ function pickSectionLabel(o: Record<string, unknown>): string | undefined {
 }
 
 /** Converte linhas típicas do Music.AI / workflows para o subdocumento `sections` do Track. */
-export function normalizeMusicAiSection(x: unknown): TranscriptionSectionSubdoc | null {
+export function normalizeMusicAiSection(
+  x: unknown,
+): TranscriptionSectionSubdoc | null {
   if (!x || typeof x !== 'object') return null;
   const o = x as Record<string, unknown>;
-  const start = pickNumber(o, ['start', 'start_time', 'begin', 'from', 't_start', 'time']);
+  const start = pickNumber(o, [
+    'start',
+    'start_time',
+    'begin',
+    'from',
+    't_start',
+    'time',
+  ]);
   const end = pickNumber(o, ['end', 'end_time', 'finish', 'to', 't_end']);
   const label = pickSectionLabel(o) ?? 'Section';
   if (start === undefined || end === undefined) return null;
@@ -184,7 +203,9 @@ function pickInlineTuneString(v: unknown): string | undefined {
 }
 
 /** Valores de tonalidade no objeto `result` do job (strings inline, não URLs). */
-function pickOriginalTuneFromResult(result: Record<string, unknown>): string | undefined {
+function pickOriginalTuneFromResult(
+  result: Record<string, unknown>,
+): string | undefined {
   for (const k of INLINE_TUNE_KEYS) {
     const t = pickInlineTuneString(result[k]);
     if (t) return t;
@@ -193,7 +214,10 @@ function pickOriginalTuneFromResult(result: Record<string, unknown>): string | u
 }
 
 /** Objetos JSON descarregados (meta, info, etc.) com campos típicos de tonalidade. */
-function pickOriginalTuneFromJsonObject(raw: unknown, depth = 0): string | undefined {
+function pickOriginalTuneFromJsonObject(
+  raw: unknown,
+  depth = 0,
+): string | undefined {
   if (depth > 10) return undefined;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const o = raw as Record<string, unknown>;
@@ -232,8 +256,16 @@ function tryPickOriginalTuneFromReferencedJsons(
   return undefined;
 }
 
-function tryPickOriginalTuneFromExportDirFiles(dir: string): string | undefined {
-  for (const name of ['meta.json', 'music-ai-meta.json', 'analysis.json', 'info.json', 'tuning.json']) {
+function tryPickOriginalTuneFromExportDirFiles(
+  dir: string,
+): string | undefined {
+  for (const name of [
+    'meta.json',
+    'music-ai-meta.json',
+    'analysis.json',
+    'info.json',
+    'tuning.json',
+  ]) {
     const p = join(dir, name);
     if (!existsSync(p)) continue;
     try {
@@ -281,17 +313,24 @@ function tryLoadSectionsFromAnyResultJson(
 /**
  * Ficheiros JSON na pasta do job que não estão listados em `result` (alguns workflows gravam outputs extra).
  */
-function tryLoadSectionsFromLooseDirJson(dir: string): TranscriptionSectionSubdoc[] {
+function tryLoadSectionsFromLooseDirJson(
+  dir: string,
+): TranscriptionSectionSubdoc[] {
   let names: string[];
   try {
     names = readdirSync(dir);
   } catch {
     return [];
   }
-  for (const name of names.filter((n) => n.endsWith('.json') && n !== 'result.music-ai.json').sort()) {
+  for (const name of names
+    .filter((n) => n.endsWith('.json') && n !== 'result.music-ai.json')
+    .sort()) {
     const lower = name.toLowerCase();
     if (lower === 'chords.json' || lower === 'chordmap.json') continue;
-    if (/chord/.test(lower) && !/section|structure|phrase|song|segment|timeline|form/.test(lower)) {
+    if (
+      /chord/.test(lower) &&
+      !/section|structure|phrase|song|segment|timeline|form/.test(lower)
+    ) {
       continue;
     }
     const raw = readResolvedJsonFile(dir, `./${name}`);
@@ -303,9 +342,7 @@ function tryLoadSectionsFromLooseDirJson(dir: string): TranscriptionSectionSubdo
 }
 
 /** Carrega `chords.json` e/ou `sections.json` de uma pasta de export Music.AI. */
-export function tryLoadMusicAiExportFromDir(
-  dir: string,
-): {
+export function tryLoadMusicAiExportFromDir(dir: string): {
   chords: TranscriptionChordEventSubdoc[];
   sections: TranscriptionSectionSubdoc[];
   original_tune: string;
@@ -322,7 +359,9 @@ export function tryLoadMusicAiExportFromDir(
       sections = extractSectionsFromRaw(chordsRaw);
     }
     if (existsSync(sectionsPath)) {
-      const sectionsRaw = JSON.parse(readFileSync(sectionsPath, 'utf8')) as unknown;
+      const sectionsRaw = JSON.parse(
+        readFileSync(sectionsPath, 'utf8'),
+      ) as unknown;
       const fromFile = extractSectionsFromRaw(sectionsRaw);
       if (fromFile.length) sections = fromFile;
     }
@@ -342,9 +381,7 @@ type MusicAiResultFile = {
  * Após `downloadJobResults` do SDK: lê `result.music-ai.json` e resolve ficheiros referenciados
  * (ex.: `chords` → `./chords.json`) quando os nomes na raiz da pasta não são os esperados.
  */
-export function tryLoadMusicAiSdkOutputDir(
-  dir: string,
-): {
+export function tryLoadMusicAiSdkOutputDir(dir: string): {
   chords: TranscriptionChordEventSubdoc[];
   sections: TranscriptionSectionSubdoc[];
   original_tune: string;
@@ -355,7 +392,9 @@ export function tryLoadMusicAiSdkOutputDir(
   const metaPath = join(dir, 'result.music-ai.json');
   if (!existsSync(metaPath)) return null;
   try {
-    const meta = JSON.parse(readFileSync(metaPath, 'utf8')) as MusicAiResultFile;
+    const meta = JSON.parse(
+      readFileSync(metaPath, 'utf8'),
+    ) as MusicAiResultFile;
     const result = meta.result;
     if (!result || typeof result !== 'object') return null;
 
@@ -367,7 +406,13 @@ export function tryLoadMusicAiSdkOutputDir(
     let chords: TranscriptionChordEventSubdoc[] = [];
     let sections: TranscriptionSectionSubdoc[] = [];
 
-    for (const ck of ['chords', 'Chords', 'chordMap', 'chordmap', 'chord_map'] as const) {
+    for (const ck of [
+      'chords',
+      'Chords',
+      'chordMap',
+      'chordmap',
+      'chord_map',
+    ] as const) {
       const rel = result[ck];
       if (typeof rel !== 'string' || !rel.endsWith('.json')) continue;
       const raw = readResolvedJsonFile(dir, rel);

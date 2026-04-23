@@ -6,6 +6,8 @@ import type { MusicTranscriptionMetaSubdoc } from '../tracks/schemas/track.schem
 export type ParsedIngestMeta = {
   song: RecognizedSongDto | null;
   transcriptionMeta: MusicTranscriptionMetaSubdoc | null;
+  variationOfTrackId: string | null;
+  variationLabel: string | null;
 };
 
 function asRecord(raw: unknown): Record<string, unknown> {
@@ -13,11 +15,14 @@ function asRecord(raw: unknown): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
-function readTranscriptionMeta(o: Record<string, unknown>): MusicTranscriptionMetaSubdoc | null {
+function readTranscriptionMeta(
+  o: Record<string, unknown>,
+): MusicTranscriptionMetaSubdoc | null {
   const meta: MusicTranscriptionMetaSubdoc = {};
-  const str = (k: string) => (typeof o[k] === 'string' ? (o[k] as string).trim() : undefined);
+  const str = (k: string) =>
+    typeof o[k] === 'string' ? o[k].trim() : undefined;
   const num = (k: string) =>
-    typeof o[k] === 'number' && Number.isFinite(o[k] as number) ? (o[k] as number) : undefined;
+    typeof o[k] === 'number' && Number.isFinite(o[k]) ? o[k] : undefined;
 
   const id = str('id');
   const name = str('name');
@@ -36,13 +41,17 @@ function readTranscriptionMeta(o: Record<string, unknown>): MusicTranscriptionMe
   return Object.keys(meta).length ? meta : null;
 }
 
-function readRecognizedSong(o: Record<string, unknown>): RecognizedSongDto | null {
+function readRecognizedSong(
+  o: Record<string, unknown>,
+): RecognizedSongDto | null {
   const title = typeof o.title === 'string' ? o.title.trim() : '';
   const artist = typeof o.artist === 'string' ? o.artist.trim() : '';
   if (!title || !artist) return null;
 
   const spotifyArtistIds = Array.isArray(o.spotify_artist_ids)
-    ? o.spotify_artist_ids.filter((x): x is string => typeof x === 'string' && x.length > 0)
+    ? o.spotify_artist_ids.filter(
+        (x): x is string => typeof x === 'string' && x.length > 0,
+      )
     : [];
 
   const out: RecognizedSongDto = {
@@ -73,13 +82,24 @@ function readRecognizedSong(o: Record<string, unknown>): RecognizedSongDto | nul
  */
 export function parseIngestMultipartMeta(raw: unknown): ParsedIngestMeta {
   if (raw === undefined || raw === null) {
-    return { song: null, transcriptionMeta: null };
+    return {
+      song: null,
+      transcriptionMeta: null,
+      variationOfTrackId: null,
+      variationLabel: null,
+    };
   }
 
   let obj: unknown;
   if (typeof raw === 'string') {
     const s = raw.trim();
-    if (!s) return { song: null, transcriptionMeta: null };
+    if (!s)
+      return {
+        song: null,
+        transcriptionMeta: null,
+        variationOfTrackId: null,
+        variationLabel: null,
+      };
     try {
       obj = JSON.parse(s) as unknown;
     } catch {
@@ -92,8 +112,19 @@ export function parseIngestMultipartMeta(raw: unknown): ParsedIngestMeta {
   }
 
   const o = asRecord(obj);
+  const variationOfTrackId =
+    typeof o.variationOfTrackId === 'string' && o.variationOfTrackId.trim()
+      ? o.variationOfTrackId.trim()
+      : null;
+  const variationLabelRaw =
+    typeof o.variationLabel === 'string'
+      ? o.variationLabel.trim().slice(0, 120)
+      : '';
+  const variationLabel = variationLabelRaw.length ? variationLabelRaw : null;
   return {
     song: readRecognizedSong(o),
     transcriptionMeta: readTranscriptionMeta(o),
+    variationOfTrackId,
+    variationLabel,
   };
 }

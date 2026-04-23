@@ -44,6 +44,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         this.logger.warn(`JWT rejeitado antes de validate(): ${detail}`);
       }
     }
-    return super.handleRequest(err, user, info, context, status) as TUser;
+    return super.handleRequest(err, user, info, context, status);
   }
 }

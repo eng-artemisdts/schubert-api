@@ -5,6 +5,7 @@ import { IngestModule } from '../ingest/ingest.module';
 import { MusicRecognitionModule } from '../integrations/music-recognition/music-recognition.module';
 import { Track, TrackSchema } from './schemas/track.schema';
 import { TracksController } from './tracks.controller';
+import { TracksIndexMigrationService } from './tracks-index-migration.service';
 import { TracksService } from './tracks.service';
 
 @Module({
@@ -17,6 +18,6 @@ import { TracksService } from './tracks.service';
     IngestModule,
   ],
   controllers: [TracksController],
-  providers: [TracksService],
+  providers: [TracksService, TracksIndexMigrationService],
 })
 export class TracksModule {}

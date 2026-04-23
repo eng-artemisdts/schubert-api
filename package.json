@@ -38,6 +38,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "slugify": "^1.6.9",
+    "tonal": "^6.4.3",
     "undici": "^7.24.8"
   },
   "devDependencies": {

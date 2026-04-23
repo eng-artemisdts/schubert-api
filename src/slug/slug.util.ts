@@ -2,7 +2,10 @@ import slugify from 'slugify';
 
 /** Remove trechos entre parêntesis (ex.: feat., remix) antes do slug. */
 export function stripParentheticalSegments(title: string): string {
-  return title.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+  return title
+    .replace(/\([^)]*\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /**

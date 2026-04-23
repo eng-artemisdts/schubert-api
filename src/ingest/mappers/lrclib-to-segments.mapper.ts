@@ -47,7 +47,9 @@ export function lrcSyncedTextToSegments(
         ? durationSec
         : cur.start + 4;
     const end = Number(
-      Math.max(cur.start + 0.05, Math.min(nextStart ?? maxEnd, maxEnd)).toFixed(3),
+      Math.max(cur.start + 0.05, Math.min(nextStart ?? maxEnd, maxEnd)).toFixed(
+        3,
+      ),
     );
     const wordsText = cur.text.split(/\s+/).filter(Boolean);
     const dur = Math.max(0.05, end - cur.start);
@@ -55,7 +57,11 @@ export function lrcSyncedTextToSegments(
       const ws = cur.start + (wi / wordsText.length) * dur;
       const we = cur.start + ((wi + 1) / wordsText.length) * dur;
       const syllables: TranscriptionLyricSyllableSubdoc[] = [
-        { syllable: w, start: Number(ws.toFixed(3)), end: Number(we.toFixed(3)) },
+        {
+          syllable: w,
+          start: Number(ws.toFixed(3)),
+          end: Number(we.toFixed(3)),
+        },
       ];
       return {
         word: w,
@@ -76,12 +82,19 @@ export function lrcSyncedTextToSegments(
 }
 
 /** Letra só texto (sem LRC) → um único segmento. */
-export function plainLyricsToSingleSegment(text: string): TranscriptionLyricSegmentSubdoc[] {
+export function plainLyricsToSingleSegment(
+  text: string,
+): TranscriptionLyricSegmentSubdoc[] {
   const t = text.trim();
   if (!t) return [];
-  const words = t.split(/\s+/).filter(Boolean).map((w) => ({
-    word: w,
-    syllables: [{ syllable: w, start: 0, end: 0 }] as TranscriptionLyricSyllableSubdoc[],
-  }));
+  const words = t
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => ({
+      word: w,
+      syllables: [
+        { syllable: w, start: 0, end: 0 },
+      ] as TranscriptionLyricSyllableSubdoc[],
+    }));
   return [{ start: 0, end: 0, text: t, language: 'unknown', words }];
 }

@@ -9,7 +9,8 @@ const HDR_APP_PERMS = 'x-cifra-app-permissions';
 function header(req: Request, name: string): string | undefined {
   const v = req.headers[name];
   if (typeof v === 'string' && v.trim()) return v.trim();
-  if (Array.isArray(v) && typeof v[0] === 'string' && v[0].trim()) return v[0].trim();
+  if (Array.isArray(v) && typeof v[0] === 'string' && v[0].trim())
+    return v[0].trim();
   return undefined;
 }
 
@@ -33,10 +34,13 @@ export function buildIngestCallerLogPayload(
   req: Request,
   user: JwtAuthUser | undefined,
 ): IngestCallerLogPayload {
-  const auth0Sub = user?.sub ?? header(req, HDR_SUB) ?? '(sem utilizador no request)';
+  const auth0Sub =
+    user?.sub ?? header(req, HDR_SUB) ?? '(sem utilizador no request)';
   const jwtPlan = user?.billingPlan?.trim();
   const headerSub = header(req, HDR_SUB);
-  const bffHeadersMatchJwt = Boolean(user?.sub && headerSub && headerSub === user.sub);
+  const bffHeadersMatchJwt = Boolean(
+    user?.sub && headerSub && headerSub === user.sub,
+  );
 
   let billingPlan = jwtPlan ?? '(não indicado)';
   let billingPlanSource: IngestCallerLogPayload['billingPlanSource'] = jwtPlan
@@ -51,13 +55,18 @@ export function buildIngestCallerLogPayload(
     }
   }
 
-  let appPermissions = user?.appPermissions?.length ? [...user.appPermissions] : [];
+  let appPermissions = user?.appPermissions?.length
+    ? [...user.appPermissions]
+    : [];
   if (!appPermissions.length && bffHeadersMatchJwt) {
     const raw = header(req, HDR_APP_PERMS);
     if (raw) {
       try {
         const parsed = JSON.parse(raw) as unknown;
-        if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+        if (
+          Array.isArray(parsed) &&
+          parsed.every((x) => typeof x === 'string')
+        ) {
           appPermissions = [...parsed];
         }
       } catch {
@@ -77,7 +86,9 @@ export function buildIngestCallerLogPayload(
 }
 
 /** Plano normalizado para estratégia de transcrição (ingest). */
-export function resolveIngestBillingPlan(p: IngestCallerLogPayload): IngestBillingPlan {
+export function resolveIngestBillingPlan(
+  p: IngestCallerLogPayload,
+): IngestBillingPlan {
   const v = p.billingPlan.trim().toLowerCase();
   if (v === 'starter' || v === 'pro') return v;
   return 'free';

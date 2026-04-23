@@ -22,4 +22,4 @@ import { TracksModule } from './tracks/tracks.module';
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
-export class AppModule { }
+export class AppModule {}

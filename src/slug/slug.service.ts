@@ -11,7 +11,8 @@ import { slugFromDisplayName } from './slug.util';
 @Injectable()
 export class SlugService {
   constructor(
-    @InjectModel(Artist.name) private readonly artistModel: Model<ArtistDocument>,
+    @InjectModel(Artist.name)
+    private readonly artistModel: Model<ArtistDocument>,
     @InjectModel(Track.name) private readonly trackModel: Model<TrackDocument>,
   ) {}
 
@@ -20,7 +21,11 @@ export class SlugService {
     const base = slugFromDisplayName(displayName);
     let candidate = base;
     for (let i = 0; i < 20; i++) {
-      const clash = await this.artistModel.findOne({ slug: candidate }).select('_id').lean().exec();
+      const clash = await this.artistModel
+        .findOne({ slug: candidate })
+        .select('_id')
+        .lean()
+        .exec();
       if (!clash) return candidate;
       const suffix = i === 0 ? randomBytes(2).toString('hex') : `${i + 1}`;
       candidate = `${base}-${suffix}`;
@@ -29,7 +34,10 @@ export class SlugService {
   }
 
   /** Slug único por artista na coleção `tracks`. */
-  async allocateTrackSlug(artistId: Types.ObjectId, displayName: string): Promise<string> {
+  async allocateTrackSlug(
+    artistId: Types.ObjectId,
+    displayName: string,
+  ): Promise<string> {
     const base = slugFromDisplayName(displayName);
     let candidate = base;
     for (let i = 0; i < 20; i++) {

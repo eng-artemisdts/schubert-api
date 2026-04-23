@@ -15,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { buildIngestCallerLogPayload } from '../auth/caller-context.util';
 import type { JwtAuthUser } from '../auth/jwt.strategy';
 import type { TrackDocument } from '../tracks/schemas/track.schema';
+import { MAX_MP3_UPLOAD_BYTES } from '../upload-limits.constants';
 import { IngestService } from './ingest.service';
 
 function trackToJson(track: TrackDocument): Record<string, unknown> {
@@ -26,8 +27,6 @@ function trackToJson(track: TrackDocument): Record<string, unknown> {
 }
 
 type RequestWithJwtUser = Request & { user?: JwtAuthUser };
-
-const MAX_BYTES = 10 * 1024 * 1024;
 
 function isMp3Upload(file: Express.Multer.File): boolean {
   const name = (file.originalname ?? '').toLowerCase();
@@ -43,7 +42,11 @@ export class IngestController {
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(
     FileInterceptor('file', {
-      limits: { fileSize: MAX_BYTES },
+      limits: {
+        fileSize: MAX_MP3_UPLOAD_BYTES,
+        /** JSON `meta` como campo de texto — default busboy/multer é 1 MB; evita truncagem no parse. */
+        fieldSize: MAX_MP3_UPLOAD_BYTES,
+      },
     }),
   )
   async ingest(
@@ -51,13 +54,16 @@ export class IngestController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body('meta') metaRaw?: string | Record<string, unknown>,
   ) {
-    console.log('[tracks/ingest] chamador', buildIngestCallerLogPayload(req, req.user));
-
     if (!file?.buffer?.length) {
-      throw new BadRequestException('Envie um ficheiro MP3 no campo multipart `file`.');
+      throw new BadRequestException(
+        'Envie um ficheiro MP3 no campo multipart `file`.',
+      );
     }
+
     if (!isMp3Upload(file)) {
-      throw new BadRequestException('Apenas ficheiros .mp3 são aceites para ingestão.');
+      throw new BadRequestException(
+        'Apenas ficheiros .mp3 são aceites para ingestão.',
+      );
     }
 
     const track = await this.ingestService.run({

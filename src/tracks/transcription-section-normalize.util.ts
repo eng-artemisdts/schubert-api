@@ -7,7 +7,9 @@ function normalizeLabel(label: unknown): string {
 /**
  * Valida e ordena secções vindas do cliente (edição de cifra).
  */
-export function normalizeSectionListFromClient(raw: unknown): TranscriptionSectionSubdoc[] {
+export function normalizeSectionListFromClient(
+  raw: unknown,
+): TranscriptionSectionSubdoc[] {
   if (!Array.isArray(raw)) return [];
   const parsed: TranscriptionSectionSubdoc[] = [];
   for (const item of raw) {
@@ -15,7 +17,8 @@ export function normalizeSectionListFromClient(raw: unknown): TranscriptionSecti
     const o = item as Record<string, unknown>;
     const start = Number(o.start);
     const end = Number(o.end);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start)
+      continue;
     parsed.push({
       start,
       end: Math.max(start + 0.01, end),

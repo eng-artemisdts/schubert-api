@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { fetch } from 'undici';
 
 import type { TranscriptionLyricSegmentSubdoc } from '../../tracks/schemas/track.schema';
-import type { ILyricsSearchProvider, LrclibSearchInput, LyricsMatchResult } from '../domain/lyrics-search.port';
+import type {
+  ILyricsSearchProvider,
+  LrclibSearchInput,
+  LyricsMatchResult,
+} from '../domain/lyrics-search.port';
 import {
   lrcSyncedTextToSegments,
   plainLyricsToSingleSegment,
@@ -79,7 +83,9 @@ export class LrclibLyricsSearchProvider implements ILyricsSearchProvider {
         const rec = (await directRes.json()) as LrcLibRecord;
         const built = this.recordToMatch(rec, durationSec);
         if (built) {
-          this.logger.log(`LRCLIB hit /get: "${input.title}" — ${input.artist}`);
+          this.logger.log(
+            `LRCLIB hit /get: "${input.title}" — ${input.artist}`,
+          );
           return built;
         }
       }
@@ -104,14 +110,28 @@ export class LrclibLyricsSearchProvider implements ILyricsSearchProvider {
 
     const ranked = rows
       .map((r) => {
-        const titleScore = overlapScore(songTitleTokens, tokenSet(r.trackName ?? ''));
-        const artistScore = overlapScore(songArtistTokens, tokenSet(r.artistName ?? ''));
+        const titleScore = overlapScore(
+          songTitleTokens,
+          tokenSet(r.trackName ?? ''),
+        );
+        const artistScore = overlapScore(
+          songArtistTokens,
+          tokenSet(r.artistName ?? ''),
+        );
         const durationScore =
-          durationSec && durationSec > 0 && typeof r.duration === 'number' && r.duration > 0
+          durationSec &&
+          durationSec > 0 &&
+          typeof r.duration === 'number' &&
+          r.duration > 0
             ? 1 -
-              Math.min(1, Math.abs(r.duration - durationSec) / Math.max(8, durationSec * 0.1))
+              Math.min(
+                1,
+                Math.abs(r.duration - durationSec) /
+                  Math.max(8, durationSec * 0.1),
+              )
             : 0.5;
-        const score = titleScore * 0.5 + artistScore * 0.35 + durationScore * 0.15;
+        const score =
+          titleScore * 0.5 + artistScore * 0.35 + durationScore * 0.15;
         return { r, score };
       })
       .sort((a, b) => b.score - a.score);
@@ -119,11 +139,15 @@ export class LrclibLyricsSearchProvider implements ILyricsSearchProvider {
     const best = ranked[0]?.r;
     if (!best) return null;
     const built = this.recordToMatch(best, durationSec);
-    if (built) this.logger.log(`LRCLIB hit /search: "${input.title}" — ${input.artist}`);
+    if (built)
+      this.logger.log(`LRCLIB hit /search: "${input.title}" — ${input.artist}`);
     return built;
   }
 
-  private recordToMatch(rec: LrcLibRecord, durationSec?: number): LyricsMatchResult | null {
+  private recordToMatch(
+    rec: LrcLibRecord,
+    durationSec?: number,
+  ): LyricsMatchResult | null {
     if (rec.instrumental) return null;
     const raw = pickLrcLibLyrics(rec);
     if (!raw) return null;

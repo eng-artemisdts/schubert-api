@@ -4,7 +4,10 @@ import { PassportStrategy } from '@nestjs/passport';
 import { passportJwtSecret } from 'jwks-rsa';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
-import { cifraPermissionsClaimKey, cifraPlanClaimKey } from './cifra-claims.constants';
+import {
+  cifraPermissionsClaimKey,
+  cifraPlanClaimKey,
+} from './cifra-claims.constants';
 
 export type Auth0JwtPayload = {
   sub: string;
@@ -67,17 +70,20 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
   validate(payload: Auth0JwtPayload): JwtAuthUser {
     if (!payload?.sub) {
-
       throw new UnauthorizedException();
     }
 
     const planRaw = payload[cifraPlanClaimKey];
     const billingPlan: BillingPlanClaim | undefined =
-      planRaw === 'free' || planRaw === 'starter' || planRaw === 'pro' ? planRaw : undefined;
+      planRaw === 'free' || planRaw === 'starter' || planRaw === 'pro'
+        ? planRaw
+        : undefined;
 
     const cp = payload[cifraPermissionsClaimKey];
     const appPermissions =
-      Array.isArray(cp) && cp.every((x): x is string => typeof x === 'string') ? [...cp] : undefined;
+      Array.isArray(cp) && cp.every((x): x is string => typeof x === 'string')
+        ? [...cp]
+        : undefined;
 
     return {
       sub: payload.sub,

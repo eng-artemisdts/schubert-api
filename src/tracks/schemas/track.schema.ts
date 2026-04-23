@@ -130,6 +130,21 @@ export class Track {
   @Prop({ trim: true, index: true })
   owner?: string;
 
+  /**
+   * Chave de variação dentro da cifra canónica.
+   * `__base__` representa a cifra principal; para variações de utilizador usa-se o `sub` do Auth0.
+   */
+  @Prop({ trim: true, default: '__base__', index: true })
+  variationKey?: string;
+
+  /** Identificador da cifra canónica (`trackId`) quando este documento é uma variação. */
+  @Prop({ trim: true, index: true })
+  variationOfTrackId?: string;
+
+  /** Nome mostrado no selector de variações (só utilizador, ex.: «Acústico capo 2»). */
+  @Prop({ trim: true, required: false })
+  variationLabel?: string;
+
   /** Afinação original da cifra (texto livre para a sidebar, ex.: «E standard»). */
   @Prop({ trim: true, default: '' })
   original_tune?: string;
@@ -171,9 +186,12 @@ export class Track {
 export const TrackSchema = SchemaFactory.createForClass(Track);
 
 TrackSchema.index(
-  { artistId: 1, slug: 1 },
+  { artistId: 1, slug: 1, variationKey: 1 },
   {
     unique: true,
-    partialFilterExpression: { slug: { $type: 'string' } },
+    partialFilterExpression: {
+      slug: { $type: 'string' },
+      variationKey: { $type: 'string' },
+    },
   },
 );

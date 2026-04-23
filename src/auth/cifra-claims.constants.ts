@@ -2,4 +2,5 @@
 export const CIFRA_CLAIMS_NS = 'https://cifra.ai/' as const;
 
 export const cifraPlanClaimKey = `${CIFRA_CLAIMS_NS}plan` as const;
-export const cifraPermissionsClaimKey = `${CIFRA_CLAIMS_NS}permissions` as const;
+export const cifraPermissionsClaimKey =
+  `${CIFRA_CLAIMS_NS}permissions` as const;

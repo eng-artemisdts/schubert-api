@@ -20,6 +20,13 @@ export type TranscriptionPatchBody = {
   lyrics?: unknown;
   lyricsSource?: LyricsSource;
   sections?: unknown;
+  variationLabel?: unknown;
+  is_private?: unknown;
+};
+
+export type TrackWithVariations = {
+  track: TrackDocument;
+  variations: TrackDocument[];
 };
 
 @Injectable()
@@ -69,15 +76,26 @@ export class TracksService {
   /**
    * Resolve uma faixa persistida por `trackId` (pasta media/transcriptions) ou `spotifyId`.
    */
-  async findByPublicKey(key: string): Promise<TrackDocument | null> {
+  async findByPublicKey(
+    key: string,
+    viewerSub?: string,
+  ): Promise<TrackDocument | null> {
     const trimmed = key.trim();
     if (!trimmed) return null;
-    return this.trackModel
+    const direct = await this.trackModel
       .findOne({
         $or: [{ trackId: trimmed }, { spotifyId: trimmed }],
       })
       .populate('artistId')
       .exec();
+    if (!direct) return null;
+    if (!this.canViewerReadVariation(direct, viewerSub)) return null;
+    const variationKey = (direct as unknown as { variationKey?: string })
+      .variationKey;
+    if (variationKey && variationKey !== '__base__') {
+      return direct;
+    }
+    return this.resolvePreferredTrack(direct, viewerSub);
   }
 
   /**
@@ -86,16 +104,50 @@ export class TracksService {
   async findByArtistAndSongSlugs(
     artistSlug: string,
     songSlug: string,
+    viewerSub?: string,
   ): Promise<TrackDocument | null> {
     const a = artistSlug.trim().toLowerCase();
     const s = songSlug.trim().toLowerCase();
     if (!a || !s) return null;
     const artist = await this.artistModel.findOne({ slug: a }).exec();
     if (!artist) return null;
-    return this.trackModel
-      .findOne({ artistId: artist._id, slug: s })
+    const base = await this.trackModel
+      .findOne({ artistId: artist._id, slug: s, variationKey: '__base__' })
       .populate('artistId')
       .exec();
+    if (base) {
+      return this.resolvePreferredTrack(base, viewerSub);
+    }
+    const fallback = await this.trackModel
+      .findOne({ artistId: artist._id, slug: s })
+      .sort({ createdAt: 1, _id: 1 })
+      .populate('artistId')
+      .exec();
+    if (!fallback) return null;
+    return this.resolvePreferredTrack(fallback, viewerSub);
+  }
+
+  async findTrackAndVariationsBySlugs(
+    artistSlug: string,
+    songSlug: string,
+    viewerSub?: string,
+  ): Promise<TrackWithVariations | null> {
+    const preferred = await this.findByArtistAndSongSlugs(
+      artistSlug,
+      songSlug,
+      viewerSub,
+    );
+    if (!preferred) return null;
+    const baseTrackId = this.resolveBaseTrackId(preferred);
+    const rawVariations = await this.trackModel
+      .find({ variationOfTrackId: baseTrackId })
+      .sort({ updatedAt: -1, _id: -1 })
+      .populate('artistId')
+      .exec();
+    const variations = rawVariations.filter((doc) =>
+      this.canViewerReadVariation(doc, viewerSub),
+    );
+    return { track: preferred, variations };
   }
 
   /**
@@ -106,16 +158,18 @@ export class TracksService {
     ownerSub: string,
     body: TranscriptionPatchBody,
   ): Promise<TrackDocument> {
-    const track = await this.findByPublicKey(key);
+    const track = await this.findByPublicKey(key, ownerSub);
     if (!track) {
       throw new NotFoundException(`Nenhuma faixa com a chave «${key}».`);
     }
     this.assertTrackOwner(track, ownerSub);
     await this.applyTranscriptionPatch(track, body);
     await track.save();
-    const fresh = await this.findByPublicKey(key);
+    const fresh = await this.findByPublicKey(key, ownerSub);
     if (!fresh) {
-      throw new NotFoundException(`Faixa «${key}» não encontrada após atualização.`);
+      throw new NotFoundException(
+        `Faixa «${key}» não encontrada após atualização.`,
+      );
     }
     return fresh;
   }
@@ -126,7 +180,11 @@ export class TracksService {
     ownerSub: string,
     body: TranscriptionPatchBody,
   ): Promise<TrackDocument> {
-    const track = await this.findByArtistAndSongSlugs(artistSlug, songSlug);
+    const track = await this.findByArtistAndSongSlugs(
+      artistSlug,
+      songSlug,
+      ownerSub,
+    );
     if (!track) {
       throw new NotFoundException(
         `Nenhuma faixa com os slugs «${artistSlug}» / «${songSlug}».`,
@@ -135,7 +193,11 @@ export class TracksService {
     this.assertTrackOwner(track, ownerSub);
     await this.applyTranscriptionPatch(track, body);
     await track.save();
-    const fresh = await this.findByArtistAndSongSlugs(artistSlug, songSlug);
+    const fresh = await this.findByArtistAndSongSlugs(
+      artistSlug,
+      songSlug,
+      ownerSub,
+    );
     if (!fresh) {
       throw new NotFoundException(`Faixa não encontrada após atualização.`);
     }
@@ -177,6 +239,79 @@ export class TracksService {
       track.sections = normalizeSectionListFromClient(body.sections);
       track.markModified('sections');
     }
+
+    const isVariationDoc = Boolean(
+      (
+        track as unknown as { variationOfTrackId?: string }
+      ).variationOfTrackId?.trim(),
+    );
+    if (body.variationLabel !== undefined && isVariationDoc) {
+      const raw = body.variationLabel;
+      const next =
+        raw === null || raw === ''
+          ? ''
+          : typeof raw === 'string'
+            ? raw.trim().slice(0, 120)
+            : '';
+      (track as unknown as { variationLabel?: string }).variationLabel = next;
+      track.markModified('variationLabel');
+    }
+
+    if (body.is_private !== undefined && isVariationDoc) {
+      const v = body.is_private;
+      (track as unknown as { is_private?: boolean }).is_private =
+        v === true || v === 'true';
+      track.markModified('is_private');
+    }
+  }
+
+  /** Variação visível para quem não é dono apenas se não for privada. */
+  private canViewerReadVariation(
+    doc: TrackDocument,
+    viewerSub?: string,
+  ): boolean {
+    const parent = (doc as unknown as { variationOfTrackId?: string })
+      .variationOfTrackId;
+    if (!parent?.trim()) return true;
+    const vKey = (doc as unknown as { variationKey?: string }).variationKey;
+    if (!vKey || vKey === '__base__') return true;
+    const priv =
+      (doc as unknown as { is_private?: boolean }).is_private === true;
+    if (!priv) return true;
+    const owner =
+      typeof (doc as unknown as { owner?: string }).owner === 'string'
+        ? (doc as unknown as { owner?: string }).owner!.trim()
+        : '';
+    const uid = typeof doc.userId === 'string' ? doc.userId.trim() : '';
+    const allowedOwner = owner || uid;
+    const sub = viewerSub?.trim() || '';
+    return Boolean(sub && allowedOwner && sub === allowedOwner);
+  }
+
+  private resolveBaseTrackId(track: TrackDocument): string {
+    const parent = (track as unknown as { variationOfTrackId?: string })
+      .variationOfTrackId;
+    if (typeof parent === 'string' && parent.trim()) return parent.trim();
+    const self = track.trackId;
+    if (typeof self === 'string' && self.trim()) return self.trim();
+    return '';
+  }
+
+  private async resolvePreferredTrack(
+    track: TrackDocument,
+    viewerSub?: string,
+  ): Promise<TrackDocument> {
+    const normalizedSub = viewerSub?.trim() || '';
+    const baseTrackId = this.resolveBaseTrackId(track);
+    if (!normalizedSub || !baseTrackId) return track;
+    const ownVariation = await this.trackModel
+      .findOne({
+        variationOfTrackId: baseTrackId,
+        owner: normalizedSub,
+      })
+      .populate('artistId')
+      .exec();
+    return ownVariation ?? track;
   }
 }
 

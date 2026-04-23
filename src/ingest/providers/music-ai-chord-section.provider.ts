@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import MusicAi from '@music.ai/sdk';
 
@@ -74,8 +78,14 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
   }
 
   /** `MUSIC_AI_LOG_WORKFLOWS=1` → lista `GET /workflow` e verifica se o slug configurado existe. */
-  private async maybeLogWorkflowCatalog(client: InstanceType<typeof MusicAi>, configuredSlug: string): Promise<void> {
-    const flag = this.config.get<string>('MUSIC_AI_LOG_WORKFLOWS')?.trim().toLowerCase();
+  private async maybeLogWorkflowCatalog(
+    client: InstanceType<typeof MusicAi>,
+    configuredSlug: string,
+  ): Promise<void> {
+    const flag = this.config
+      .get<string>('MUSIC_AI_LOG_WORKFLOWS')
+      ?.trim()
+      .toLowerCase();
     if (flag !== '1' && flag !== 'true') return;
     try {
       const { workflows } = await client.listWorkflows({ page: 0, size: 100 });
@@ -87,7 +97,10 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
       } else {
         this.logger.warn(
           `Music.AI GET /workflow: slug «${configuredSlug}» não está na primeira página (até 100). ` +
-            `Exemplos de slugs: ${workflows.map((w) => w.slug).slice(0, 15).join(', ')}${workflows.length > 15 ? '…' : ''}`,
+            `Exemplos de slugs: ${workflows
+              .map((w) => w.slug)
+              .slice(0, 15)
+              .join(', ')}${workflows.length > 15 ? '…' : ''}`,
         );
       }
     } catch (e) {
@@ -107,7 +120,9 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
           original_tune: loaded.original_tune ?? '',
         };
       }
-      this.logger.warn(`MUSICAI_EXPORT_DIR sem exportação válida: ${exportDir}`);
+      this.logger.warn(
+        `MUSICAI_EXPORT_DIR sem exportação válida: ${exportDir}`,
+      );
     }
 
     const apiKey = this.config.get<string>('MUSIC_AI_API_KEY')?.trim();
@@ -119,15 +134,20 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
     }
 
     const workflow =
-      this.config.get<string>('MUSIC_AI_WORKFLOW')?.trim() || DEFAULT_MUSIC_AI_CHORD_WORKFLOW;
-    const apiEndpoint = this.config.get<string>('MUSIC_AI_API_ENDPOINT')?.trim();
+      this.config.get<string>('MUSIC_AI_WORKFLOW')?.trim() ||
+      DEFAULT_MUSIC_AI_CHORD_WORKFLOW;
+    const apiEndpoint = this.config
+      .get<string>('MUSIC_AI_API_ENDPOINT')
+      ?.trim();
     const pollMsRaw = this.config.get<string>('MUSIC_AI_JOB_POLL_MS')?.trim();
     const pollMs = pollMsRaw ? parseInt(pollMsRaw, 10) : NaN;
 
     const client = new MusicAi({
       apiKey,
       ...(apiEndpoint ? { apiEndpoint } : {}),
-      ...(Number.isFinite(pollMs) && pollMs >= 500 ? { jobMonitorInterval: pollMs } : {}),
+      ...(Number.isFinite(pollMs) && pollMs >= 500
+        ? { jobMonitorInterval: pollMs }
+        : {}),
     });
 
     const outDir = await mkdtemp(join(tmpdir(), 'musicai-chords-'));
@@ -151,7 +171,9 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
 
       await client.downloadJobResults(job, outDir);
 
-      const sectionsWorkflow = this.config.get<string>('MUSIC_AI_SECTIONS_WORKFLOW')?.trim();
+      const sectionsWorkflow = this.config
+        .get<string>('MUSIC_AI_SECTIONS_WORKFLOW')
+        ?.trim();
 
       let parsed = tryLoadMusicAiSdkOutputDir(outDir);
 
@@ -208,7 +230,8 @@ export class MusicAiChordSectionProvider implements IChordSectionProvider {
       // Não bloquear a resposta HTTP: FS ou rede podem atrasar.
       void rm(outDir, { recursive: true, force: true }).catch(() => undefined);
       const keepJobs = ['1', 'true', 'yes'].includes(
-        this.config.get<string>('MUSIC_AI_KEEP_JOBS')?.trim().toLowerCase() ?? '',
+        this.config.get<string>('MUSIC_AI_KEEP_JOBS')?.trim().toLowerCase() ??
+          '',
       );
       if (!keepJobs) {
         for (const id of jobIdsToDelete) {

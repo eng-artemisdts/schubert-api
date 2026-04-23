@@ -23,16 +23,26 @@ function toWordEntry(w: Record<string, unknown>): TranscriptionLyricWordSubdoc {
   return { word: text, start: st, end: en, syllables: [syllable] };
 }
 
-function tryLine(o: Record<string, unknown>): { start: number; end: number; text: string; words?: unknown[] } | null {
-  const text = normToken(o.text ?? o.line ?? o.lyric ?? o.value ?? o.content ?? '');
-  const start = Number(o.start ?? o.startTime ?? o.begin ?? o.tStart ?? o.from ?? NaN);
+function tryLine(
+  o: Record<string, unknown>,
+): { start: number; end: number; text: string; words?: unknown[] } | null {
+  const text = normToken(
+    o.text ?? o.line ?? o.lyric ?? o.value ?? o.content ?? '',
+  );
+  const start = Number(
+    o.start ?? o.startTime ?? o.begin ?? o.tStart ?? o.from ?? NaN,
+  );
   const end = Number(o.end ?? o.endTime ?? o.finish ?? o.tEnd ?? o.to ?? NaN);
   if (!text && !Number.isFinite(start)) return null;
   return {
     start: Number.isFinite(start) ? start : 0,
     end: Number.isFinite(end) ? end : Number.isFinite(start) ? start : 0,
     text,
-    words: Array.isArray(o.words) ? o.words : Array.isArray(o.tokens) ? o.tokens : undefined,
+    words: Array.isArray(o.words)
+      ? o.words
+      : Array.isArray(o.tokens)
+        ? o.tokens
+        : undefined,
   };
 }
 
@@ -43,7 +53,8 @@ export function audioshakeJsonToLyricSegments(
   raw: unknown,
   languageLabel: string,
 ): TranscriptionLyricSegmentSubdoc[] {
-  const data = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const data =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   let candidates =
     (data.lines as unknown[]) ??
     (data.segments as unknown[]) ??
@@ -56,7 +67,12 @@ export function audioshakeJsonToLyricSegments(
     candidates = raw as unknown[];
   }
 
-  const segments: { start: number; end: number; text: string; words?: unknown[] }[] = [];
+  const segments: {
+    start: number;
+    end: number;
+    text: string;
+    words?: unknown[];
+  }[] = [];
   if (Array.isArray(candidates)) {
     for (const c of candidates) {
       if (c && typeof c === 'object') {
@@ -72,7 +88,9 @@ export function audioshakeJsonToLyricSegments(
     let mappedWords: TranscriptionLyricWordSubdoc[] = [];
     if (Array.isArray(seg.words) && seg.words.length) {
       mappedWords = seg.words
-        .filter((w): w is Record<string, unknown> => !!w && typeof w === 'object')
+        .filter(
+          (w): w is Record<string, unknown> => !!w && typeof w === 'object',
+        )
         .map((w) => toWordEntry(w))
         .filter((e) => e.word.length);
     }
