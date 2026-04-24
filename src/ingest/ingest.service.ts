@@ -59,7 +59,7 @@ export class IngestService {
     private readonly artistModel: Model<ArtistDocument>,
     private readonly slugService: SlugService,
     private readonly config: ConfigService,
-  ) { }
+  ) {}
 
   /**
    * Quando `INGEST_DISABLE_LYRICS_SEARCH` está definida como truthy (ex.: `1`, `true`, `yes`),
@@ -128,7 +128,7 @@ export class IngestService {
         const song = parsed.song!;
         const durationSec =
           typeof song.duration_ms === 'number' &&
-            Number.isFinite(song.duration_ms)
+          Number.isFinite(song.duration_ms)
             ? song.duration_ms / 1000
             : parsed.transcriptionMeta?.duration_seconds;
         const match = await this.lyricsSearchProvider.search({
@@ -181,15 +181,15 @@ export class IngestService {
       const ownedLookupId = parsed.transcriptionMeta?.trackId?.trim();
       const existing = variationOfTrackId
         ? await this.trackModel
-          .findOne({
-            variationOfTrackId,
-            owner: auth0Sub,
-          })
-          .exec()
+            .findOne({
+              variationOfTrackId,
+              owner: auth0Sub,
+            })
+            .exec()
         : ownedLookupId
           ? await this.trackModel
-            .findOne({ trackId: ownedLookupId, owner: auth0Sub })
-            .exec()
+              .findOne({ trackId: ownedLookupId, owner: auth0Sub })
+              .exec()
           : null;
 
       const preferredNewId =
@@ -203,10 +203,10 @@ export class IngestService {
         existing?.slug ??
         (variationOfTrackId
           ? await this.resolveSlugFromBaseTrack(
-            artist._id,
-            variationOfTrackId,
-            trackName,
-          )
+              artist._id,
+              variationOfTrackId,
+              trackName,
+            )
           : await this.slugService.allocateTrackSlug(artist._id, trackName));
 
       const coverFromSong = parsed.song?.cover_image_url?.trim();

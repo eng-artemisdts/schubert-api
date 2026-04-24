@@ -52,8 +52,8 @@ function readRecognizedSong(
 
   const spotifyArtistIds = Array.isArray(o.spotify_artist_ids)
     ? o.spotify_artist_ids.filter(
-      (x): x is string => typeof x === 'string' && x.length > 0,
-    )
+        (x): x is string => typeof x === 'string' && x.length > 0,
+      )
     : [];
 
   const out: RecognizedSongDto = {
