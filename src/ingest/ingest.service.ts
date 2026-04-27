@@ -38,6 +38,7 @@ import {
 } from './ingest.tokens';
 import { LyricsTranscriptionStrategyFactory } from './strategies/lyrics-transcription-strategy.factory';
 import { YoutubeSearchPort } from '../integrations/youtube-search/youtube-search.port';
+import { AudioStoragePort } from '../integrations/audio-storage/audio-storage.port';
 
 export type IngestRunInput = {
   file: Express.Multer.File;
@@ -61,7 +62,8 @@ export class IngestService {
     private readonly slugService: SlugService,
     private readonly config: ConfigService,
     private readonly youtubeSearch: YoutubeSearchPort,
-  ) {}
+    private readonly audioStorage: AudioStoragePort,
+  ) { }
 
   /**
    * Quando `INGEST_DISABLE_LYRICS_SEARCH` está definida como truthy (ex.: `1`, `true`, `yes`),
@@ -130,7 +132,7 @@ export class IngestService {
         const song = parsed.song!;
         const durationSec =
           typeof song.duration_ms === 'number' &&
-          Number.isFinite(song.duration_ms)
+            Number.isFinite(song.duration_ms)
             ? song.duration_ms / 1000
             : parsed.transcriptionMeta?.duration_seconds;
         const match = await this.lyricsSearchProvider.search({
@@ -170,7 +172,7 @@ export class IngestService {
         ?.trim();
       const artistThumbUrl =
         typeof parsed.song?.cover_image_url === 'string' &&
-        parsed.song.cover_image_url.trim()
+          parsed.song.cover_image_url.trim()
           ? parsed.song.cover_image_url.trim()
           : undefined;
       const artist = await this.ensureArtist(
@@ -183,15 +185,15 @@ export class IngestService {
       const ownedLookupId = parsed.transcriptionMeta?.trackId?.trim();
       const existing = variationOfTrackId
         ? await this.trackModel
-            .findOne({
-              variationOfTrackId,
-              owner: auth0Sub,
-            })
-            .exec()
+          .findOne({
+            variationOfTrackId,
+            owner: auth0Sub,
+          })
+          .exec()
         : ownedLookupId
           ? await this.trackModel
-              .findOne({ trackId: ownedLookupId, owner: auth0Sub })
-              .exec()
+            .findOne({ trackId: ownedLookupId, owner: auth0Sub })
+            .exec()
           : null;
 
       const preferredNewId =
@@ -201,14 +203,28 @@ export class IngestService {
       const trackId =
         existing?.trackId ?? (await this.allocateGlobalTrackId(preferredNewId));
 
+      const uploadedAudioUrl = await this.audioStorage
+        .uploadIngestAudio({
+          buffer: input.file.buffer,
+          mimeType: input.file.mimetype || 'audio/mpeg',
+          ownerSub: auth0Sub,
+          trackIdHint: trackId,
+        })
+        .catch((err) => {
+          this.logger.warn(
+            `Falha no upload do áudio para storage: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return null;
+        });
+
       const songSlug =
         existing?.slug ??
         (variationOfTrackId
           ? await this.resolveSlugFromBaseTrack(
-              artist._id,
-              variationOfTrackId,
-              trackName,
-            )
+            artist._id,
+            variationOfTrackId,
+            trackName,
+          )
           : await this.slugService.allocateTrackSlug(artist._id, trackName));
 
       const coverFromSong = parsed.song?.cover_image_url?.trim();
@@ -216,9 +232,9 @@ export class IngestService {
       const youtubeFromLookup =
         !youtubeFromMeta && parsed.song?.title && parsed.song?.artist
           ? await this.youtubeSearch.findSongVideoUrl({
-              title: parsed.song.title,
-              artist: parsed.song.artist,
-            })
+            title: parsed.song.title,
+            artist: parsed.song.artist,
+          })
           : null;
       const youtubeResolved = youtubeFromMeta || youtubeFromLookup || undefined;
       /** Variações de utilizador não podem repetir `spotifyId` (índice único na coleção). */
@@ -235,7 +251,10 @@ export class IngestService {
         sections,
         lyrics,
         lyricsSource,
-        meta: mergedMeta,
+        meta: this.withUploadedAudioUrl(
+          mergedMeta,
+          uploadedAudioUrl || existing?.meta?.audioUrl,
+        ),
         userId: auth0Sub,
         owner: auth0Sub,
         variationKey: variationOfTrackId ? auth0Sub : '__base__',
@@ -375,6 +394,19 @@ export class IngestService {
     return Object.keys(m).length
       ? (m as MusicTranscriptionMetaSubdoc)
       : undefined;
+  }
+
+  private withUploadedAudioUrl(
+    meta: MusicTranscriptionMetaSubdoc | undefined,
+    audioUrl: string | undefined,
+  ): MusicTranscriptionMetaSubdoc | undefined {
+    const trimmed =
+      typeof audioUrl === 'string' && audioUrl.trim() ? audioUrl.trim() : '';
+    if (!trimmed) return meta;
+    return {
+      ...(meta || {}),
+      audioUrl: trimmed,
+    };
   }
 
   /** `trackId` é único na coleção; se `preferred` já existir para outro dono, gera sufixo. */
