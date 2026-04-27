@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 
 import { Artist, ArtistSchema } from '../artists/schemas/artist.schema';
+import { YoutubeSearchModule } from '../integrations/youtube-search/youtube-search.module';
 import { SlugModule } from '../slug/slug.module';
 import { Track, TrackSchema } from '../tracks/schemas/track.schema';
 import {
@@ -23,6 +24,7 @@ import { LyricsTranscriptionStrategyFactory } from './strategies/lyrics-transcri
       { name: Artist.name, schema: ArtistSchema },
     ]),
     SlugModule,
+    YoutubeSearchModule,
   ],
   controllers: [IngestController],
   providers: [

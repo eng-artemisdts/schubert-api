@@ -10,6 +10,7 @@ import { Agent, fetch as undiciFetch, FormData } from 'undici';
 import { truncateMp3BufferToMaxDurationSeconds } from './mp3-truncate.util';
 import { MusicRecognitionPort } from './music-recognition.port';
 import { RecognizedSongDto } from './recognized-song.dto';
+import { YoutubeSearchPort } from '../youtube-search/youtube-search.port';
 
 type AudDResult = {
   artist: string;
@@ -113,7 +114,10 @@ export class AudDMusicRecognitionService
     headersTimeout: 120_000,
   });
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly youtubeSearch: YoutubeSearchPort,
+  ) {
     super();
   }
 
@@ -229,7 +233,7 @@ export class AudDMusicRecognitionService
     throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
-  private mapResult(r: AudDResult): RecognizedSongDto {
+  private async mapResult(r: AudDResult): Promise<RecognizedSongDto> {
     const spotifyArtistIds =
       r.spotify?.artists
         ?.map((a) => a.id)
@@ -242,7 +246,7 @@ export class AudDMusicRecognitionService
       r.apple_music?.durationInMillis ??
       r.apple_music?.attributes?.durationInMillis;
 
-    return {
+    const mapped: RecognizedSongDto = {
       title: r.title,
       artist: r.artist,
       album: r.album,
@@ -255,6 +259,14 @@ export class AudDMusicRecognitionService
       duration_ms: durationMs,
       cover_image_url: this.pickCoverImageUrl(r),
     };
+
+    const youtubeUrl = await this.youtubeSearch.findSongVideoUrl({
+      title: mapped.title,
+      artist: mapped.artist,
+    });
+    if (youtubeUrl) mapped.youtube_url = youtubeUrl;
+
+    return mapped;
   }
 
   /** Spotify e Apple Music (via `return`) trazem arte; escolhe a maior imagem do Spotify quando existir. */

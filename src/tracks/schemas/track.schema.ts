@@ -179,6 +179,10 @@ export class Track {
   @Prop({ trim: true, required: false })
   coverImageUrl?: string;
 
+  /** URL do YouTube quando identificada/enriquecida no fluxo de reconhecimento. */
+  @Prop({ trim: true, required: false })
+  youtubeUrl?: string;
+
   @Prop({ required: false })
   chordTimeOffsetSec?: number;
 }

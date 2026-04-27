@@ -75,6 +75,9 @@ function readRecognizedSong(
   if (typeof o.cover_image_url === 'string' && o.cover_image_url.trim()) {
     out.cover_image_url = o.cover_image_url.trim();
   }
+  if (typeof o.youtube_url === 'string' && o.youtube_url.trim()) {
+    out.youtube_url = o.youtube_url.trim();
+  }
   return out;
 }
 

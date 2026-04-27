@@ -26,7 +26,7 @@ export class AudioshakeLyricsTranscriptionProvider implements ILyricsTranscripti
     AudioshakeLyricsTranscriptionProvider.name,
   );
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) { }
 
   async transcribe(
     audioPath: string,
@@ -34,7 +34,7 @@ export class AudioshakeLyricsTranscriptionProvider implements ILyricsTranscripti
   ): Promise<
     import('../../tracks/schemas/track.schema').TranscriptionLyricSegmentSubdoc[]
   > {
-    const apiKey = this.config.get<string>('AUDIOSHAKE_API_KEY')?.trim();
+    const apiKey = 'ashke_5cccfc68e695356b8884028f0a7f78fefc787ff19fa601bd633589767c8eebcd';
     if (!apiKey) {
       throw new ServiceUnavailableException(
         'AUDIOSHAKE_API_KEY não configurada — transcrição AudioShake indisponível.',
@@ -113,7 +113,7 @@ export class AudioshakeLyricsTranscriptionProvider implements ILyricsTranscripti
       throw new ServiceUnavailableException('AudioShake: resposta sem task id');
 
     let task: Record<string, unknown> = {};
-    for (;;) {
+    for (; ;) {
       const tr = await fetch(`${base}/tasks/${taskId}`, {
         headers: { 'x-api-key': apiKey },
       });

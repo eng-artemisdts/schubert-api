@@ -37,6 +37,7 @@ import {
   LYRICS_SEARCH_PROVIDER,
 } from './ingest.tokens';
 import { LyricsTranscriptionStrategyFactory } from './strategies/lyrics-transcription-strategy.factory';
+import { YoutubeSearchPort } from '../integrations/youtube-search/youtube-search.port';
 
 export type IngestRunInput = {
   file: Express.Multer.File;
@@ -59,6 +60,7 @@ export class IngestService {
     private readonly artistModel: Model<ArtistDocument>,
     private readonly slugService: SlugService,
     private readonly config: ConfigService,
+    private readonly youtubeSearch: YoutubeSearchPort,
   ) {}
 
   /**
@@ -210,6 +212,15 @@ export class IngestService {
           : await this.slugService.allocateTrackSlug(artist._id, trackName));
 
       const coverFromSong = parsed.song?.cover_image_url?.trim();
+      const youtubeFromMeta = parsed.song?.youtube_url?.trim();
+      const youtubeFromLookup =
+        !youtubeFromMeta && parsed.song?.title && parsed.song?.artist
+          ? await this.youtubeSearch.findSongVideoUrl({
+              title: parsed.song.title,
+              artist: parsed.song.artist,
+            })
+          : null;
+      const youtubeResolved = youtubeFromMeta || youtubeFromLookup || undefined;
       /** Variações de utilizador não podem repetir `spotifyId` (índice único na coleção). */
       const spotifyIdForSave = variationOfTrackId
         ? undefined
@@ -236,6 +247,7 @@ export class IngestService {
         original_tune: resolvedOriginalTune,
         coverImageUrl: coverFromSong || existing?.coverImageUrl,
         ...(parsed.capo_at !== undefined ? { capo_at: parsed.capo_at } : {}),
+        youtubeUrl: youtubeResolved || existing?.youtubeUrl,
       };
 
       if (existing) {
