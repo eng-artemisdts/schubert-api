@@ -3,7 +3,11 @@ import { MongooseModule } from '@nestjs/mongoose';
 
 import { Artist, ArtistSchema } from '../artists/schemas/artist.schema';
 import { AudioStorageModule } from '../integrations/audio-storage/audio-storage.module';
+import { IngestCacheModule } from '../integrations/ingest-cache/ingest-cache.module';
 import { YoutubeSearchModule } from '../integrations/youtube-search/youtube-search.module';
+import { IngestJobsModule } from '../ingest-jobs/ingest-jobs.module';
+import { QueueModule } from '../queue/queue.module';
+import { QueueWorkerService } from '../queue/queue.worker.service';
 import { SlugModule } from '../slug/slug.module';
 import { Track, TrackSchema } from '../tracks/schemas/track.schema';
 import {
@@ -26,7 +30,10 @@ import { LyricsTranscriptionStrategyFactory } from './strategies/lyrics-transcri
     ]),
     SlugModule,
     AudioStorageModule,
+    IngestCacheModule,
     YoutubeSearchModule,
+    IngestJobsModule,
+    QueueModule,
   ],
   controllers: [IngestController],
   providers: [
@@ -38,6 +45,7 @@ import { LyricsTranscriptionStrategyFactory } from './strategies/lyrics-transcri
       provide: AUDIOSHAKE_TRANSCRIPTION_PROVIDER,
       useClass: AudioshakeLyricsTranscriptionProvider,
     },
+    QueueWorkerService,
   ],
 })
 export class IngestModule { }

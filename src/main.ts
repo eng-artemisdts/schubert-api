@@ -2,7 +2,12 @@ import './sentry.bootstrap';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { Queue } from 'bullmq';
+import { createBullBoard } from '@bull-board/api';
+import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
+import { ExpressAdapter } from '@bull-board/express';
 import { AppModule } from './app.module';
+import { INGEST_QUEUE_NAME } from './queue/queue.constants';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -16,6 +21,21 @@ async function bootstrap() {
       allowedHeaders: ['authorization', 'content-type'],
       methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     });
+  }
+
+  const boardEnabled = process.env.BULLBOARD_ENABLED !== '0';
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (boardEnabled && redisUrl) {
+    const ingestQueue = new Queue(INGEST_QUEUE_NAME, {
+      connection: { url: redisUrl },
+    });
+    const serverAdapter = new ExpressAdapter();
+    serverAdapter.setBasePath('/admin/queues');
+    createBullBoard({
+      queues: [new BullMQAdapter(ingestQueue)],
+      serverAdapter,
+    });
+    app.use('/admin/queues', serverAdapter.getRouter());
   }
 
   await app.listen(process.env.PORT ?? 3001, '0.0.0.0');

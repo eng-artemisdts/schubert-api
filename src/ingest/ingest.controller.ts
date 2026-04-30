@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
+  Param,
   Post,
   Req,
   UploadedFile,
@@ -11,9 +13,13 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
 
 import { buildIngestCallerLogPayload } from '../auth/caller-context.util';
 import type { JwtAuthUser } from '../auth/jwt.strategy';
+import { IngestJobsService } from '../ingest-jobs/ingest-jobs.service';
+import type { IngestJobResponseDto } from '../ingest-jobs/dto/ingest-job-response.dto';
+import { QueueProducerService } from '../queue/queue.producer.service';
 import type { TrackDocument } from '../tracks/schemas/track.schema';
 import { MAX_MP3_UPLOAD_BYTES } from '../upload-limits.constants';
 import { IngestService } from './ingest.service';
@@ -36,10 +42,21 @@ function isMp3Upload(file: Express.Multer.File): boolean {
 
 @Controller('tracks')
 export class IngestController {
-  constructor(private readonly ingestService: IngestService) {}
+  constructor(
+    private readonly ingestService: IngestService,
+    private readonly config: ConfigService,
+    private readonly ingestJobs: IngestJobsService,
+    private readonly queueProducer: QueueProducerService,
+  ) {}
+
+  @Get('ingest/jobs/:jobId')
+  async getIngestJob(@Param('jobId') jobId: string): Promise<IngestJobResponseDto> {
+    const doc = await this.ingestJobs.getByJobId(jobId.trim());
+    return this.ingestJobs.toResponse(doc);
+  }
 
   @Post('ingest')
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.ACCEPTED)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -66,12 +83,48 @@ export class IngestController {
       );
     }
 
-    const track = await this.ingestService.run({
-      file,
-      metaRaw,
-      caller: buildIngestCallerLogPayload(req, req.user),
-    });
+    const caller = buildIngestCallerLogPayload(req, req.user);
+    const asyncEnabled = this.config.get<string>('INGEST_ASYNC_ENABLED') === '1';
+    if (!asyncEnabled) {
+      const track = await this.ingestService.run({
+        file,
+        metaRaw,
+        caller,
+      });
+      return { track: trackToJson(track), status: 'completed' };
+    }
 
-    return { track: trackToJson(track) };
+    const idempotencyKey = this.ingestJobs.createIdempotencyKey({
+      ownerSub: caller.auth0Sub,
+      fileBuffer: file.buffer,
+      metaRaw,
+    });
+    const existing = await this.ingestJobs.findActiveByIdempotencyKey(idempotencyKey);
+    if (existing) {
+      return {
+        jobId: existing.jobId,
+        status: existing.status,
+        progressPercent: existing.progressPercent,
+      };
+    }
+
+    const job = await this.ingestJobs.createQueuedJob({
+      ownerSub: caller.auth0Sub,
+      idempotencyKey,
+      inputRef: {
+        fileName: file.originalname,
+        fileSize: file.size,
+      },
+    });
+    await this.queueProducer.enqueueIngest({
+      jobId: job.jobId,
+      ownerSub: caller.auth0Sub,
+      fileName: file.originalname || 'upload.mp3',
+      mimeType: file.mimetype || 'audio/mpeg',
+      fileBase64: file.buffer.toString('base64'),
+      metaRaw: metaRaw ?? null,
+      caller,
+    });
+    return { jobId: job.jobId, status: 'queued', progressPercent: 0 };
   }
 }

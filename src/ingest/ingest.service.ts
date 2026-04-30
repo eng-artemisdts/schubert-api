@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -39,11 +39,27 @@ import {
 import { LyricsTranscriptionStrategyFactory } from './strategies/lyrics-transcription-strategy.factory';
 import { YoutubeSearchPort } from '../integrations/youtube-search/youtube-search.port';
 import { AudioStoragePort } from '../integrations/audio-storage/audio-storage.port';
+import { IngestCachePort } from '../integrations/ingest-cache/ingest-cache.port';
 
 export type IngestRunInput = {
   file: Express.Multer.File;
   metaRaw: unknown;
   caller: IngestCallerLogPayload;
+  onStage?: (
+    event: {
+      stage:
+        | 'uploadAudio'
+        | 'recognizeSong'
+        | 'resolveChordsAndSections'
+        | 'resolveLyrics'
+        | 'resolveYoutube'
+        | 'persistTrack';
+      status: 'running' | 'completed' | 'failed';
+      progressPercent: number;
+      cacheHit?: boolean;
+      error?: string;
+    },
+  ) => Promise<void> | void;
 };
 
 @Injectable()
@@ -63,6 +79,7 @@ export class IngestService {
     private readonly config: ConfigService,
     private readonly youtubeSearch: YoutubeSearchPort,
     private readonly audioStorage: AudioStoragePort,
+    private readonly ingestCache: IngestCachePort,
   ) { }
 
   /**
@@ -77,6 +94,27 @@ export class IngestService {
   }
 
   async run(input: IngestRunInput): Promise<TrackDocument> {
+    const stage = async (
+      name:
+        | 'uploadAudio'
+        | 'recognizeSong'
+        | 'resolveChordsAndSections'
+        | 'resolveLyrics'
+        | 'resolveYoutube'
+        | 'persistTrack',
+      status: 'running' | 'completed' | 'failed',
+      progressPercent: number,
+      options?: { cacheHit?: boolean; error?: string },
+    ) => {
+      await input.onStage?.({
+        stage: name,
+        status,
+        progressPercent,
+        cacheHit: options?.cacheHit,
+        error: options?.error,
+      });
+    };
+
     const auth0Sub = input.caller.auth0Sub;
     if (!auth0Sub || auth0Sub.startsWith('(')) {
       throw new UnauthorizedException(
@@ -88,6 +126,7 @@ export class IngestService {
       input.caller,
     );
     const parsed = parseIngestMultipartMeta(input.metaRaw);
+    const audioHash = createHash('sha256').update(input.file.buffer).digest('hex');
 
     const tmpPath = join(
       tmpdir(),
@@ -96,11 +135,34 @@ export class IngestService {
     await writeFile(tmpPath, input.file.buffer);
 
     try {
+      await stage('resolveChordsAndSections', 'running', 15);
+      const chordSectionCacheKey = `chordsSections:${audioHash}:v1`;
+      const cachedChordSection = await this.ingestCache.get<{
+        chords: unknown[];
+        sections: unknown[];
+        original_tune?: string;
+      }>(chordSectionCacheKey);
       const {
         chords,
         sections,
         original_tune: workflowOriginalTune,
-      } = await this.chordSectionProvider.analyze(tmpPath);
+      } = cachedChordSection
+        ? ({
+            chords: cachedChordSection.chords,
+            sections: cachedChordSection.sections,
+            original_tune: cachedChordSection.original_tune,
+          } as Awaited<ReturnType<IChordSectionProvider['analyze']>>)
+        : await this.chordSectionProvider.analyze(tmpPath);
+      if (!cachedChordSection) {
+        await this.ingestCache.set(
+          chordSectionCacheKey,
+          { chords, sections, original_tune: workflowOriginalTune },
+          60 * 60 * 24 * 90,
+        );
+      }
+      await stage('resolveChordsAndSections', 'completed', 35, {
+        cacheHit: Boolean(cachedChordSection),
+      });
 
       // Fallback: se o workflow não devolveu tonalidade, deteta a partir dos acordes capturados
       // (tonaljs/key — pontua cada par tónica×modo pelos acordes diatónicos compatíveis).
@@ -118,11 +180,13 @@ export class IngestService {
 
       let lyrics: TranscriptionLyricSegmentSubdoc[] = [];
       let lyricsSource: LyricsSource = 'AI';
+      let lyricsCacheHit = false;
 
       const lyricsSearchDisabled = this.isLyricsSearchDisabled();
       const canLrclib =
         !lyricsSearchDisabled &&
         Boolean(parsed.song?.title && parsed.song?.artist);
+      await stage('resolveLyrics', 'running', 40);
       if (lyricsSearchDisabled) {
         this.logger.log(
           'Pesquisa LRCLIB desativada via INGEST_DISABLE_LYRICS_SEARCH.',
@@ -151,13 +215,35 @@ export class IngestService {
       }
 
       if (!lyrics.length) {
-        const tx = this.transcriptionStrategyFactory.select(billingPlan);
-        lyrics = await tx.transcribe(tmpPath, { language: 'pt' });
-        lyricsSource = 'AI';
-        this.logger.log(
-          `Transcrição (AudioShake): ${lyrics.length} segmento(s).`,
-        );
+        const lyricsCacheKey = `lyrics:${audioHash}:${
+          billingPlan
+        }:pt`;
+        const cachedLyrics = await this.ingestCache.get<{
+          lyrics: TranscriptionLyricSegmentSubdoc[];
+          source: LyricsSource;
+        }>(lyricsCacheKey);
+        if (cachedLyrics?.lyrics?.length) {
+          lyrics = cachedLyrics.lyrics;
+          lyricsSource = cachedLyrics.source;
+          lyricsCacheHit = true;
+          this.logger.log(`Letra via cache: ${lyrics.length} segmento(s).`);
+        } else {
+          const tx = this.transcriptionStrategyFactory.select(billingPlan);
+          lyrics = await tx.transcribe(tmpPath, { language: 'pt' });
+          lyricsSource = 'AI';
+          await this.ingestCache.set(
+            lyricsCacheKey,
+            { lyrics, source: lyricsSource },
+            60 * 60 * 24 * 30,
+          );
+          this.logger.log(
+            `Transcrição (AudioShake): ${lyrics.length} segmento(s).`,
+          );
+        }
       }
+      await stage('resolveLyrics', 'completed', 60, {
+        cacheHit: lyricsCacheHit,
+      });
 
       const mergedMeta = this.mergeTrackMeta(parsed);
       const trackName =
@@ -203,6 +289,7 @@ export class IngestService {
       const trackId =
         existing?.trackId ?? (await this.allocateGlobalTrackId(preferredNewId));
 
+      await stage('uploadAudio', 'running', 65);
       const uploadedAudioUrl = await this.audioStorage
         .uploadIngestAudio({
           buffer: input.file.buffer,
@@ -216,6 +303,9 @@ export class IngestService {
           );
           return null;
         });
+      await stage('uploadAudio', 'completed', 72, {
+        cacheHit: false,
+      });
 
       const songSlug =
         existing?.slug ??
@@ -227,8 +317,17 @@ export class IngestService {
           )
           : await this.slugService.allocateTrackSlug(artist._id, trackName));
 
+      await stage('resolveYoutube', 'running', 75);
       const coverFromSong = parsed.song?.cover_image_url?.trim();
       const youtubeFromMeta = parsed.song?.youtube_url?.trim();
+      const youtubeCacheKey = parsed.song?.title && parsed.song?.artist
+        ? `youtube:v2:${parsed.song.title.trim().toLowerCase()}:${parsed.song.artist
+            .trim()
+            .toLowerCase()}`
+        : '';
+      const youtubeFromCache = youtubeCacheKey
+        ? await this.ingestCache.get<string>(youtubeCacheKey)
+        : null;
       const youtubeFromLookup =
         !youtubeFromMeta && parsed.song?.title && parsed.song?.artist
           ? await this.youtubeSearch.findSongVideoUrl({
@@ -236,11 +335,19 @@ export class IngestService {
             artist: parsed.song.artist,
           })
           : null;
-      const youtubeResolved = youtubeFromMeta || youtubeFromLookup || undefined;
+      if (youtubeCacheKey && youtubeFromLookup) {
+        await this.ingestCache.set(youtubeCacheKey, youtubeFromLookup, 60 * 60 * 24 * 14);
+      }
+      const youtubeResolved =
+        youtubeFromMeta || youtubeFromCache || youtubeFromLookup || undefined;
+      await stage('resolveYoutube', 'completed', 82, {
+        cacheHit: Boolean(youtubeFromCache),
+      });
       /** Variações de utilizador não podem repetir `spotifyId` (índice único na coleção). */
       const spotifyIdForSave = variationOfTrackId
         ? undefined
         : parsed.song?.spotify_track_id?.trim() || undefined;
+      await stage('persistTrack', 'running', 88);
       const payload = {
         artistId: artist._id,
         trackId,
@@ -276,11 +383,13 @@ export class IngestService {
         }
         await existing.save();
         this.logger.log(`Track atualizada: ${trackId}`);
+        await stage('persistTrack', 'completed', 100);
         return this.loadTrackWithArtist(existing._id);
       }
 
       const created = await this.trackModel.create(payload);
       this.logger.log(`Track criada: ${trackId}`);
+      await stage('persistTrack', 'completed', 100);
       return this.loadTrackWithArtist(created._id);
     } finally {
       // Não bloquear a resposta HTTP: alguns SDKs podem manter o ficheiro aberto brevemente.

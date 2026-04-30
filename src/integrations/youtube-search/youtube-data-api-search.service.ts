@@ -31,7 +31,11 @@ export class YoutubeDataApiSearchService extends YoutubeSearchPort {
     url.searchParams.set('part', 'snippet');
     url.searchParams.set('type', 'video');
     url.searchParams.set('videoCategoryId', '10');
-    url.searchParams.set('maxResults', '1');
+    url.searchParams.set('maxResults', '5');
+    // Evita retornar vídeos que bloqueiam reprodução em players embutidos.
+    url.searchParams.set('videoEmbeddable', 'true');
+    // Evita vídeos bloqueados para reprodução fora do youtube.com.
+    url.searchParams.set('videoSyndicated', 'true');
     url.searchParams.set('q', q);
     url.searchParams.set('key', apiKey);
 
@@ -44,7 +48,9 @@ export class YoutubeDataApiSearchService extends YoutubeSearchPort {
         return null;
       }
       const data = (await res.json()) as YoutubeSearchResponse;
-      const videoId = data.items?.[0]?.id?.videoId?.trim();
+      const videoId = data.items
+        ?.map((item) => item?.id?.videoId?.trim() || '')
+        .find((id) => Boolean(id));
       if (!videoId) return null;
       return `https://www.youtube.com/watch?v=${videoId}`;
     } catch (err) {
