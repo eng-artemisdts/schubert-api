@@ -17,7 +17,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly ingestJobs: IngestJobsService,
     @Inject(INGEST_QUEUE_NAME)
     private readonly queue: unknown | null,
-  ) {}
+  ) { }
 
   onModuleInit(): void {
     const redisUrl = this.config.get<string>('REDIS_URL')?.trim();

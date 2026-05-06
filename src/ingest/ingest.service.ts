@@ -48,12 +48,12 @@ export type IngestRunInput = {
   onStage?: (
     event: {
       stage:
-        | 'uploadAudio'
-        | 'recognizeSong'
-        | 'resolveChordsAndSections'
-        | 'resolveLyrics'
-        | 'resolveYoutube'
-        | 'persistTrack';
+      | 'uploadAudio'
+      | 'recognizeSong'
+      | 'resolveChordsAndSections'
+      | 'resolveLyrics'
+      | 'resolveYoutube'
+      | 'persistTrack';
       status: 'running' | 'completed' | 'failed';
       progressPercent: number;
       cacheHit?: boolean;
@@ -147,12 +147,12 @@ export class IngestService {
         sections,
         original_tune: workflowOriginalTune,
       } = cachedChordSection
-        ? ({
+          ? ({
             chords: cachedChordSection.chords,
             sections: cachedChordSection.sections,
             original_tune: cachedChordSection.original_tune,
           } as Awaited<ReturnType<IChordSectionProvider['analyze']>>)
-        : await this.chordSectionProvider.analyze(tmpPath);
+          : await this.chordSectionProvider.analyze(tmpPath);
       if (!cachedChordSection) {
         await this.ingestCache.set(
           chordSectionCacheKey,
@@ -215,9 +215,8 @@ export class IngestService {
       }
 
       if (!lyrics.length) {
-        const lyricsCacheKey = `lyrics:${audioHash}:${
-          billingPlan
-        }:pt`;
+        const lyricsCacheKey = `lyrics:${audioHash}:${billingPlan
+          }:pt`;
         const cachedLyrics = await this.ingestCache.get<{
           lyrics: TranscriptionLyricSegmentSubdoc[];
           source: LyricsSource;
@@ -322,8 +321,8 @@ export class IngestService {
       const youtubeFromMeta = parsed.song?.youtube_url?.trim();
       const youtubeCacheKey = parsed.song?.title && parsed.song?.artist
         ? `youtube:v2:${parsed.song.title.trim().toLowerCase()}:${parsed.song.artist
-            .trim()
-            .toLowerCase()}`
+          .trim()
+          .toLowerCase()}`
         : '';
       const youtubeFromCache = youtubeCacheKey
         ? await this.ingestCache.get<string>(youtubeCacheKey)

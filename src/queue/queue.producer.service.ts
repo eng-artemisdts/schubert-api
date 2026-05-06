@@ -20,7 +20,7 @@ export class QueueProducerService {
     private readonly config: ConfigService,
     @Inject(INGEST_QUEUE_NAME)
     private readonly queue: Queue | null,
-  ) {}
+  ) { }
 
   isAvailable(): boolean {
     return Boolean(this.queue);

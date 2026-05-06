@@ -55,7 +55,7 @@ export class TracksController {
   constructor(
     private readonly recognition: MusicRecognitionPort,
     private readonly tracks: TracksService,
-  ) {}
+  ) { }
 
   /**
    * Devolve o documento `Track` (com `artistId` populado) por slugs do artista e da música.

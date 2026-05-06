@@ -47,7 +47,7 @@ export class IngestController {
     private readonly config: ConfigService,
     private readonly ingestJobs: IngestJobsService,
     private readonly queueProducer: QueueProducerService,
-  ) {}
+  ) { }
 
   @Get('ingest/jobs/:jobId')
   async getIngestJob(@Param('jobId') jobId: string): Promise<IngestJobResponseDto> {

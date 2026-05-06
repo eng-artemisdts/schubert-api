@@ -14,7 +14,7 @@ export class IngestJobsService {
   constructor(
     @InjectModel(IngestJob.name)
     private readonly ingestJobModel: Model<IngestJobDocument>,
-  ) {}
+  ) { }
 
   createIdempotencyKey(input: {
     ownerSub: string;

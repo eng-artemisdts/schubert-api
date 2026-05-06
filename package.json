@@ -21,6 +21,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1037.0",
+    "@bull-board/api": "^7.0.0",
+    "@bull-board/express": "^7.0.0",
     "@music.ai/sdk": "^1.0.26",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
@@ -29,8 +31,10 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@sentry/node": "^10.50.0",
+    "bullmq": "^5.76.4",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "jwk-to-pem": "^2.0.7",
     "jwks-rsa": "^4.0.1",
@@ -41,7 +45,8 @@
     "rxjs": "^7.8.1",
     "slugify": "^1.6.9",
     "tonal": "^6.4.3",
-    "undici": "^7.24.8"
+    "undici": "^7.24.8",
+    "ytdl-mp3": "^5.2.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
