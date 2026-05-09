@@ -22,6 +22,8 @@ import type { IngestJobResponseDto } from '../ingest-jobs/dto/ingest-job-respons
 import { QueueProducerService } from '../queue/queue.producer.service';
 import type { TrackDocument } from '../tracks/schemas/track.schema';
 import { MAX_MP3_UPLOAD_BYTES } from '../upload-limits.constants';
+import { IngestUrlDto } from './dto/ingest-url.dto';
+import { IngestUrlService } from './ingest-url.service';
 import { IngestService } from './ingest.service';
 
 function trackToJson(track: TrackDocument): Record<string, unknown> {
@@ -47,7 +49,8 @@ export class IngestController {
     private readonly config: ConfigService,
     private readonly ingestJobs: IngestJobsService,
     private readonly queueProducer: QueueProducerService,
-  ) { }
+    private readonly ingestUrl: IngestUrlService,
+  ) {}
 
   @Get('ingest/jobs/:jobId')
   async getIngestJob(@Param('jobId') jobId: string): Promise<IngestJobResponseDto> {
@@ -129,15 +132,36 @@ export class IngestController {
   }
 
   /**
-   * Stub temporário: o fluxo de ingestão a partir de uma faixa Spotify foi removido enquanto se
-   * desenha um substituto sem dependência do `ytdl-mp3` / `@distube/ytdl-core` (que falha a
-   * extrair o player.js actual do YouTube e despeja ficheiros de debug no CWD do processo).
-   *
-   * Mantemos a rota para não partir o cliente; o body é ignorado.
+   * Ingest a partir de link Spotify.
+   * Resolve metadata via Spotify Web API → busca no YouTube → yt-dlp → fila (ou síncrono).
    */
   @Post('ingest/spotify')
   @HttpCode(HttpStatus.ACCEPTED)
-  ingestSpotify(): { ok: true } {
-    return { ok: true };
+  async ingestSpotify(
+    @Req() req: RequestWithJwtUser,
+    @Body() body: IngestUrlDto,
+  ): Promise<
+    | { jobId: string; status: string; progressPercent: number }
+    | { track: Record<string, unknown>; status: 'completed' }
+  > {
+    const caller = buildIngestCallerLogPayload(req, req.user);
+    return this.ingestUrl.ingestFromUrl(body, caller);
+  }
+
+  /**
+   * Ingest a partir de link de qualquer plataforma suportada
+   * (YouTube, Spotify, TikTok, Instagram Reels).
+   */
+  @Post('ingest/url')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async ingestFromUrl(
+    @Req() req: RequestWithJwtUser,
+    @Body() dto: IngestUrlDto,
+  ): Promise<
+    | { jobId: string; status: string; progressPercent: number }
+    | { track: Record<string, unknown>; status: 'completed' }
+  > {
+    const caller = buildIngestCallerLogPayload(req, req.user);
+    return this.ingestUrl.ingestFromUrl(dto, caller);
   }
 }

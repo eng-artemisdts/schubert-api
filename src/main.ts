@@ -1,16 +1,24 @@
 import './sentry.bootstrap';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { Queue } from 'bullmq';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
+import { isDevAuthBypassEnabled } from './auth/dev-auth-bypass.util';
 import { AppModule } from './app.module';
 import { INGEST_QUEUE_NAME } from './queue/queue.constants';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const config = app.get(ConfigService);
+  if (isDevAuthBypassEnabled(config)) {
+    new Logger('Bootstrap').warn(
+      'DEV_AUTH_BYPASS está ligado: rotas protegidas aceitam pedidos sem JWT válido. Use apenas em desenvolvimento local.',
+    );
+  }
   app.useBodyParser('json', { limit: '20mb' });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 

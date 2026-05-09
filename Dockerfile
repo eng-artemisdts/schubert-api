@@ -12,6 +12,11 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+RUN apk add --no-cache python3 py3-pip ffmpeg \
+  && pip3 install --no-cache-dir yt-dlp \
+  && mkdir -p /tmp/schubert-stream-extract \
+  && chmod 777 /tmp/schubert-stream-extract
+
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
