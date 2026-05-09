@@ -78,6 +78,12 @@ function readRecognizedSong(
   if (typeof o.youtube_url === 'string' && o.youtube_url.trim()) {
     out.youtube_url = o.youtube_url.trim();
   }
+  if (
+    typeof o.spotify_preview_url === 'string' &&
+    /^https:\/\//i.test(o.spotify_preview_url.trim())
+  ) {
+    out.spotify_preview_url = o.spotify_preview_url.trim();
+  }
   return out;
 }
 

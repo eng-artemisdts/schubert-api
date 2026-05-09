@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job, Worker } from 'bullmq';
+
 import { IngestJobsService } from '../ingest-jobs/ingest-jobs.service';
 import { IngestService } from '../ingest/ingest.service';
 import { INGEST_JOB_NAME, INGEST_QUEUE_NAME } from './queue.constants';
@@ -17,7 +18,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly ingestJobs: IngestJobsService,
     @Inject(INGEST_QUEUE_NAME)
     private readonly queue: unknown | null,
-  ) { }
+  ) {}
 
   onModuleInit(): void {
     const redisUrl = this.config.get<string>('REDIS_URL')?.trim();
@@ -56,7 +57,14 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async processJob(job: Job<IngestQueuePayload>): Promise<void> {
-    if (job.name !== INGEST_JOB_NAME) return;
+    if (job.name === INGEST_JOB_NAME) {
+      await this.processFileIngestJob(job);
+      return;
+    }
+    this.logger.warn(`Nome de job BullMQ não suportado: ${job.name}`);
+  }
+
+  private async processFileIngestJob(job: Job<IngestQueuePayload>): Promise<void> {
     const d = job.data;
     await job.log(`[${d.jobId}] etapa=processIngest status=running`);
     await job.updateProgress(5);
@@ -69,14 +77,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
         mimetype: d.mimeType,
       } as Express.Multer.File,
       metaRaw: d.metaRaw,
-      caller: {
-        auth0Sub: d.ownerSub,
-        billingPlan: 'free',
-        auth0ApiPermissions: [],
-        appPermissions: [],
-        scope: null,
-        billingPlanSource: 'none',
-      },
+      caller: d.caller,
       onStage: async (evt) => {
         await this.ingestJobs.updateStage(d.jobId, evt.stage, evt.status, {
           progressPercent: evt.progressPercent,
@@ -89,22 +90,28 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
         await job.updateProgress(evt.progressPercent);
       },
     });
+    await this.finalizeIngestJob(job, d.jobId, track);
+  }
+
+  private async finalizeIngestJob(
+    job: Job<IngestQueuePayload>,
+    jobId: string,
+    track: unknown,
+  ): Promise<void> {
     const trackId =
-      typeof (track as unknown as { trackId?: string }).trackId === 'string'
-        ? (track as unknown as { trackId?: string }).trackId
+      typeof (track as { trackId?: string }).trackId === 'string'
+        ? (track as { trackId?: string }).trackId
         : undefined;
     const trackObjectId =
-      typeof (track as unknown as { _id?: unknown })._id?.toString === 'function'
-        ? (track as unknown as { _id: { toString: () => string } })._id.toString()
+      typeof (track as { _id?: { toString: () => string } })._id?.toString === 'function'
+        ? (track as { _id: { toString: () => string } })._id.toString()
         : undefined;
-    await this.ingestJobs.updateStage(d.jobId, 'processIngest', 'completed', {
+    await this.ingestJobs.updateStage(jobId, 'processIngest', 'completed', {
       progressPercent: 95,
     });
-    await job.log(
-      `[${d.jobId}] etapa=processIngest status=completed trackId=${trackId ?? ''}`,
-    );
+    await job.log(`[${jobId}] etapa=processIngest status=completed trackId=${trackId ?? ''}`);
     await job.updateProgress(95);
-    await this.ingestJobs.markCompleted(d.jobId, { trackId, trackObjectId });
+    await this.ingestJobs.markCompleted(jobId, { trackId, trackObjectId });
     await job.updateProgress(100);
   }
 }

@@ -45,8 +45,7 @@
     "rxjs": "^7.8.1",
     "slugify": "^1.6.9",
     "tonal": "^6.4.3",
-    "undici": "^7.24.8",
-    "ytdl-mp3": "^5.2.2"
+    "undici": "^7.24.8"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

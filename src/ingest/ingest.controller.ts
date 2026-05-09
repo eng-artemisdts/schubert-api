@@ -127,4 +127,17 @@ export class IngestController {
     });
     return { jobId: job.jobId, status: 'queued', progressPercent: 0 };
   }
+
+  /**
+   * Stub temporário: o fluxo de ingestão a partir de uma faixa Spotify foi removido enquanto se
+   * desenha um substituto sem dependência do `ytdl-mp3` / `@distube/ytdl-core` (que falha a
+   * extrair o player.js actual do YouTube e despeja ficheiros de debug no CWD do processo).
+   *
+   * Mantemos a rota para não partir o cliente; o body é ignorado.
+   */
+  @Post('ingest/spotify')
+  @HttpCode(HttpStatus.ACCEPTED)
+  ingestSpotify(): { ok: true } {
+    return { ok: true };
+  }
 }
