@@ -2,10 +2,11 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { ConfigService } from '@nestjs/config';
 import { Job, Worker } from 'bullmq';
 
+import { IngestUrlService } from '../ingest/ingest-url.service';
 import { IngestJobsService } from '../ingest-jobs/ingest-jobs.service';
 import { IngestService } from '../ingest/ingest.service';
-import { INGEST_JOB_NAME, INGEST_QUEUE_NAME } from './queue.constants';
-import type { IngestQueuePayload } from './queue.producer.service';
+import { INGEST_JOB_NAME, INGEST_QUEUE_NAME, INGEST_URL_JOB_NAME } from './queue.constants';
+import type { IngestQueuePayload, IngestUrlQueuePayload } from './queue.producer.service';
 
 @Injectable()
 export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -15,6 +16,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly config: ConfigService,
     private readonly ingestService: IngestService,
+    private readonly ingestUrlService: IngestUrlService,
     private readonly ingestJobs: IngestJobsService,
     @Inject(INGEST_QUEUE_NAME)
     private readonly queue: unknown | null,
@@ -41,7 +43,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
 
     this.worker = new Worker(
       INGEST_QUEUE_NAME,
-      async (job: Job<IngestQueuePayload>) => this.processJob(job),
+      async (job: Job<IngestQueuePayload | IngestUrlQueuePayload>) => this.processJob(job),
       {
         connection: { url: redisUrl },
         concurrency: Number(this.config.get<string>('INGEST_QUEUE_CONCURRENCY') || 1),
@@ -72,12 +74,26 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async processJob(job: Job<IngestQueuePayload>): Promise<void> {
+  private async processJob(job: Job<IngestQueuePayload | IngestUrlQueuePayload>): Promise<void> {
     if (job.name === INGEST_JOB_NAME) {
-      await this.processFileIngestJob(job);
+      await this.processFileIngestJob(job as Job<IngestQueuePayload>);
+      return;
+    }
+    if (job.name === INGEST_URL_JOB_NAME) {
+      await this.processUrlIngestJob(job as Job<IngestUrlQueuePayload>);
       return;
     }
     this.logger.warn(`Nome de job BullMQ não suportado: ${job.name}`);
+  }
+
+  private async processUrlIngestJob(job: Job<IngestUrlQueuePayload>): Promise<void> {
+    const d = job.data;
+    await job.log(`[${d.jobId}] etapa=resolveSource status=running`);
+    await job.updateProgress(2);
+
+    const track = await this.ingestUrlService.processUrlIngestFromQueue(d);
+
+    await this.finalizeIngestJob(job, d.jobId, track);
   }
 
   private async processFileIngestJob(job: Job<IngestQueuePayload>): Promise<void> {
@@ -110,7 +126,7 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async finalizeIngestJob(
-    job: Job<IngestQueuePayload>,
+    job: Job<IngestQueuePayload | IngestUrlQueuePayload>,
     jobId: string,
     track: unknown,
   ): Promise<void> {

@@ -28,6 +28,19 @@ export class IngestJobsService {
     return hash.digest('hex');
   }
 
+  /** Idempotência para ingestão por URL (sem buffer de áudio no pedido HTTP). */
+  createUrlIdempotencyKey(input: {
+    ownerSub: string;
+    sourceUrl: string;
+    dto: Record<string, unknown>;
+  }): string {
+    const hash = createHash('sha256');
+    hash.update(input.ownerSub);
+    hash.update(input.sourceUrl.trim());
+    hash.update(JSON.stringify(input.dto));
+    return hash.digest('hex');
+  }
+
   async findActiveByIdempotencyKey(key: string): Promise<IngestJobDocument | null> {
     return this.ingestJobModel
       .findOne({

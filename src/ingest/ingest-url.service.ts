@@ -16,10 +16,11 @@ import {
 import { StreamAudioExtractPort } from '../integrations/stream-audio-extract/stream-audio-extract.port';
 import { YoutubeSearchPort } from '../integrations/youtube-search/youtube-search.port';
 import { IngestJobsService } from '../ingest-jobs/ingest-jobs.service';
+import type { IngestUrlQueuePayload } from '../queue/queue.producer.service';
 import { QueueProducerService } from '../queue/queue.producer.service';
 import type { IngestUrlDto } from './dto/ingest-url.dto';
 import { IngestService } from './ingest.service';
-import { detectSourcePlatform } from './platform-detect.util';
+import { detectSourcePlatform, type SourcePlatform } from './platform-detect.util';
 
 export type IngestUrlQueuedResult = {
   jobId: string;
@@ -70,6 +71,124 @@ export class IngestUrlService {
       );
     }
 
+    const asyncEnabled = this.config.get<string>('INGEST_ASYNC_ENABLED') === '1';
+
+    if (!asyncEnabled) {
+      return this.ingestFromUrlSync(dto, caller, platform);
+    }
+
+    if (!this.queueProducer.isAvailable()) {
+      throw new ServiceUnavailableException(
+        'Ingestão assíncrona indisponível: configure REDIS_URL e INGEST_ASYNC_ENABLED=1.',
+      );
+    }
+
+    const idempotencyKey = this.ingestJobs.createUrlIdempotencyKey({
+      ownerSub: caller.auth0Sub,
+      sourceUrl: dto.sourceUrl,
+      dto: dto as unknown as Record<string, unknown>,
+    });
+
+    const existing = await this.ingestJobs.findActiveByIdempotencyKey(idempotencyKey);
+    if (existing) {
+      return {
+        jobId: existing.jobId,
+        status: existing.status,
+        progressPercent: existing.progressPercent,
+      };
+    }
+
+    const job = await this.ingestJobs.createQueuedJob({
+      ownerSub: caller.auth0Sub,
+      idempotencyKey,
+      inputRef: {
+        sourceUrl: dto.sourceUrl,
+        platform,
+        title: dto.title?.trim() || undefined,
+        artist: dto.artist?.trim() || undefined,
+      },
+    });
+
+    await this.queueProducer.enqueueIngestUrl({
+      jobId: job.jobId,
+      ownerSub: caller.auth0Sub,
+      dto,
+      platform,
+      caller,
+    });
+
+    this.logger.log(
+      `[ingest-url] job=${job.jobId} enfileirado plataforma=${platform} (resolução de áudio em background)`,
+    );
+
+    return { jobId: job.jobId, status: 'queued', progressPercent: 0 };
+  }
+
+  /** Worker BullMQ: metadata → YouTube → yt-dlp → pipeline de cifra. */
+  async processUrlIngestFromQueue(payload: IngestUrlQueuePayload): Promise<unknown> {
+    const { jobId, dto, platform, caller } = payload;
+
+    await this.ingestJobs.updateStage(jobId, 'resolveSource', 'running', { progressPercent: 2 });
+
+    const meta = await this.resolveMetadata(dto, platform);
+    const audioSourceUrl = await this.resolveAudioUrl(dto.sourceUrl, platform, meta);
+
+    this.logger.log(`[ingest-url] job=${jobId} plataforma=${platform} audioSource=${audioSourceUrl}`);
+
+    await this.ingestJobs.updateStage(jobId, 'resolveSource', 'completed', { progressPercent: 5 });
+    await this.ingestJobs.updateStage(jobId, 'downloadSpotifySource', 'running', { progressPercent: 8 });
+
+    const extraction = await this.streamExtract.extract({ sourceUrl: audioSourceUrl });
+
+    await this.ingestJobs.updateStage(jobId, 'downloadSpotifySource', 'completed', {
+      progressPercent: 15,
+    });
+
+    const resolvedTitle = meta?.title ?? extraction.title ?? 'Untitled';
+    const resolvedArtist = meta?.artist ?? extraction.uploader ?? 'Unknown Artist';
+
+    const metaRaw = this.buildMetaRaw({
+      dto,
+      meta,
+      resolvedTitle,
+      resolvedArtist,
+      audioSourceUrl,
+      platform,
+    });
+
+    const fileBuffer = extraction.buffer;
+    const fakeFile = {
+      buffer: fileBuffer,
+      originalname: extraction.fileName,
+      mimetype: extraction.mimeType,
+      size: fileBuffer.length,
+    } as Express.Multer.File;
+
+    await this.ingestJobs.updateStage(jobId, 'processIngest', 'running', { progressPercent: 18 });
+
+    const track = await this.ingestService.run({
+      file: fakeFile,
+      metaRaw,
+      caller,
+      onStage: async (evt) => {
+        await this.ingestJobs.updateStage(jobId, evt.stage, evt.status, {
+          progressPercent: evt.progressPercent,
+          cacheHit: evt.cacheHit,
+          error: evt.error,
+        });
+      },
+    });
+
+    this.logger.log(`[ingest-url] job=${jobId} concluído faixa="${resolvedTitle}"`);
+
+    return track;
+  }
+
+  private async ingestFromUrlSync(
+    dto: IngestUrlDto,
+    caller: IngestCallerLogPayload,
+    platform: SourcePlatform,
+  ): Promise<IngestUrlSyncResult> {
     const meta = await this.resolveMetadata(dto, platform);
     const audioSourceUrl = await this.resolveAudioUrl(dto.sourceUrl, platform, meta);
 
@@ -97,76 +216,21 @@ export class IngestUrlService {
       size: fileBuffer.length,
     } as Express.Multer.File;
 
-    const asyncEnabled = this.config.get<string>('INGEST_ASYNC_ENABLED') === '1';
-
-    if (!asyncEnabled) {
-      const track = await this.ingestService.run({
-        file: fakeFile,
-        metaRaw,
-        caller,
-      });
-      const t = track as unknown as { toJSON?: () => Record<string, unknown> };
-      const json =
-        typeof t.toJSON === 'function' ? t.toJSON() : (track as unknown as Record<string, unknown>);
-      return { track: json, status: 'completed' };
-    }
-
-    if (!this.queueProducer.isAvailable()) {
-      throw new ServiceUnavailableException(
-        'Ingestão assíncrona indisponível: configure REDIS_URL e INGEST_ASYNC_ENABLED=1.',
-      );
-    }
-
-    const idempotencyKey = this.ingestJobs.createIdempotencyKey({
-      ownerSub: caller.auth0Sub,
-      fileBuffer,
-      metaRaw,
-    });
-
-    const existing = await this.ingestJobs.findActiveByIdempotencyKey(idempotencyKey);
-    if (existing) {
-      return {
-        jobId: existing.jobId,
-        status: existing.status,
-        progressPercent: existing.progressPercent,
-      };
-    }
-
-    const job = await this.ingestJobs.createQueuedJob({
-      ownerSub: caller.auth0Sub,
-      idempotencyKey,
-      inputRef: {
-        sourceUrl: dto.sourceUrl,
-        platform,
-        fileName: extraction.fileName,
-        fileSize: fileBuffer.length,
-      },
-    });
-
-    await this.queueProducer.enqueueIngest({
-      jobId: job.jobId,
-      ownerSub: caller.auth0Sub,
-      fileName: extraction.fileName,
-      mimeType: extraction.mimeType,
-      fileBase64: fileBuffer.toString('base64'),
+    const track = await this.ingestService.run({
+      file: fakeFile,
       metaRaw,
       caller,
     });
-
-    this.logger.log(`[ingest-url] job=${job.jobId} plataforma=${platform} faixa="${resolvedTitle}"`);
-
-    return { jobId: job.jobId, status: 'queued', progressPercent: 0 };
+    const t = track as unknown as { toJSON?: () => Record<string, unknown> };
+    const json =
+      typeof t.toJSON === 'function' ? t.toJSON() : (track as unknown as Record<string, unknown>);
+    return { track: json, status: 'completed' };
   }
 
   private async resolveMetadata(
     dto: IngestUrlDto,
-    platform: ReturnType<typeof detectSourcePlatform>,
+    platform: SourcePlatform,
   ): Promise<ResolvedMeta> {
-    if (platform === 'spotify') {
-      const spotifyMeta = await this.spotifyMeta.getTrackMeta(dto.sourceUrl);
-      if (spotifyMeta) return spotifyMeta;
-    }
-
     if (dto.title?.trim() && dto.artist?.trim()) {
       return {
         title: dto.title.trim(),
@@ -178,12 +242,17 @@ export class IngestUrlService {
       };
     }
 
+    if (platform === 'spotify') {
+      const spotifyMeta = await this.spotifyMeta.getTrackMeta(dto.sourceUrl);
+      if (spotifyMeta) return spotifyMeta;
+    }
+
     return null;
   }
 
   private async resolveAudioUrl(
     originalUrl: string,
-    platform: ReturnType<typeof detectSourcePlatform>,
+    platform: SourcePlatform,
     meta: { title?: string; artist?: string } | null,
   ): Promise<string> {
     if (platform !== 'spotify') return originalUrl;
@@ -214,7 +283,7 @@ export class IngestUrlService {
     resolvedTitle: string;
     resolvedArtist: string;
     audioSourceUrl: string;
-    platform: ReturnType<typeof detectSourcePlatform>;
+    platform: SourcePlatform;
   }): Record<string, unknown> {
     const { dto, meta, resolvedTitle, resolvedArtist, audioSourceUrl, platform } = opts;
     const trackId = `url_${randomBytes(4).toString('hex')}`;

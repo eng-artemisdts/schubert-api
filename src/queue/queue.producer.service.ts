@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import type { Queue } from 'bullmq';
 
 import type { IngestCallerLogPayload } from '../auth/caller-context.util';
-import { INGEST_JOB_NAME, INGEST_QUEUE_NAME } from './queue.constants';
+import type { IngestUrlDto } from '../ingest/dto/ingest-url.dto';
+import type { SourcePlatform } from '../ingest/platform-detect.util';
+import { INGEST_JOB_NAME, INGEST_QUEUE_NAME, INGEST_URL_JOB_NAME } from './queue.constants';
 
 export type IngestQueuePayload = {
   jobId: string;
@@ -12,6 +14,14 @@ export type IngestQueuePayload = {
   mimeType: string;
   fileBase64: string;
   metaRaw: unknown;
+  caller: IngestCallerLogPayload;
+};
+
+export type IngestUrlQueuePayload = {
+  jobId: string;
+  ownerSub: string;
+  dto: IngestUrlDto;
+  platform: SourcePlatform;
   caller: IngestCallerLogPayload;
 };
 
@@ -48,5 +58,13 @@ export class QueueProducerService {
     }
     await this.queue.add(INGEST_JOB_NAME, payload, this.ingestJobOptions(payload.jobId));
     this.logger.log(`Job enfileirado: ${payload.jobId}`);
+  }
+
+  async enqueueIngestUrl(payload: IngestUrlQueuePayload): Promise<void> {
+    if (!this.queue) {
+      throw new Error('Queue indisponível: REDIS_URL não configurado');
+    }
+    await this.queue.add(INGEST_URL_JOB_NAME, payload, this.ingestJobOptions(payload.jobId));
+    this.logger.log(`Job URL enfileirado: ${payload.jobId} plataforma=${payload.platform}`);
   }
 }
