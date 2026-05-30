@@ -12,4 +12,4 @@ import { YoutubeSearchPort } from './youtube-search.port';
   ],
   exports: [YoutubeSearchPort],
 })
-export class YoutubeSearchModule {}
+export class YoutubeSearchModule { }

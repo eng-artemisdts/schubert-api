@@ -35,7 +35,7 @@ export class TracksService {
     @InjectModel(Track.name) private readonly trackModel: Model<TrackDocument>,
     @InjectModel(Artist.name)
     private readonly artistModel: Model<ArtistDocument>,
-  ) {}
+  ) { }
 
   /**
    * Resolves a DB track already configured for the app, using recognition metadata.

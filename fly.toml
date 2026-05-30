@@ -6,6 +6,9 @@ primary_region = "gru"
 [env]
   NODE_ENV = "production"
   PORT = "3000"
+  # Binários instalados via apk no Dockerfile (Alpine)
+  YTDLP_BINARY = "/usr/bin/yt-dlp"
+  FFMPEG_BINARY = "/usr/bin/ffmpeg"
 
 [http_service]
   internal_port = 3000

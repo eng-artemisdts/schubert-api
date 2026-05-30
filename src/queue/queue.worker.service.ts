@@ -29,14 +29,30 @@ export class QueueWorkerService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
+    /** BullMQ default lock é 30s — ingestão (yt-dlp, IA, etc.) demora minutos; sem isto: "could not renew lock". */
+    const lockParsed = Number(this.config.get<string>('INGEST_QUEUE_LOCK_DURATION_MS'));
+    const lockDurationMs =
+      Number.isFinite(lockParsed) && lockParsed >= 60_000 ? lockParsed : 30 * 60 * 1000;
+    const stalledParsed = Number(this.config.get<string>('INGEST_QUEUE_STALLED_INTERVAL_MS'));
+    const stalledIntervalMs =
+      Number.isFinite(stalledParsed) && stalledParsed >= 5_000
+        ? stalledParsed
+        : Math.min(Math.max(Math.floor(lockDurationMs / 3), 10_000), 120_000);
+
     this.worker = new Worker(
       INGEST_QUEUE_NAME,
       async (job: Job<IngestQueuePayload>) => this.processJob(job),
       {
         connection: { url: redisUrl },
         concurrency: Number(this.config.get<string>('INGEST_QUEUE_CONCURRENCY') || 1),
+        lockDuration: lockDurationMs,
+        stalledInterval: stalledIntervalMs,
       },
     );
+    this.logger.log(
+      `Worker BullMQ: lockDuration=${lockDurationMs}ms stalledInterval=${stalledIntervalMs}ms`,
+    );
+
     this.worker.on('failed', async (job, err) => {
       if (!job?.data?.jobId) return;
       await job.log(

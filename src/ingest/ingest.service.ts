@@ -289,22 +289,52 @@ export class IngestService {
         existing?.trackId ?? (await this.allocateGlobalTrackId(preferredNewId));
 
       await stage('uploadAudio', 'running', 65);
-      const uploadedAudioUrl = await this.audioStorage
-        .uploadIngestAudio({
-          buffer: input.file.buffer,
-          mimeType: input.file.mimetype || 'audio/mpeg',
-          ownerSub: auth0Sub,
-          trackIdHint: trackId,
-        })
-        .catch((err) => {
-          this.logger.warn(
-            `Falha no upload do áudio para storage: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          return null;
-        });
-      await stage('uploadAudio', 'completed', 72, {
-        cacheHit: false,
-      });
+      const storageProvider =
+        this.config.get<string>('AUDIO_STORAGE_PROVIDER')?.trim().toLowerCase() ||
+        'noop';
+      const fileBytes = input.file.buffer?.length ?? 0;
+      this.logger.log(
+        `uploadAudio: provider=${storageProvider} trackId=${trackId} bytes=${fileBytes} mime=${input.file.mimetype || 'audio/mpeg'}`,
+      );
+      if (!fileBytes) {
+        const msg = 'Ficheiro de áudio vazio — não é possível enviar ao storage.';
+        this.logger.error(`uploadAudio: ${msg}`);
+        await stage('uploadAudio', 'failed', 72, { error: msg });
+      }
+      const uploadedAudioUrl =
+        fileBytes > 0
+          ? await this.audioStorage
+              .uploadIngestAudio({
+                buffer: input.file.buffer,
+                mimeType: input.file.mimetype || 'audio/mpeg',
+                ownerSub: auth0Sub,
+                trackIdHint: trackId,
+              })
+              .catch((err) => {
+                const message =
+                  err instanceof Error ? err.message : String(err);
+                this.logger.error(
+                  `Falha no upload do áudio para storage (trackId=${trackId}): ${message}`,
+                );
+                return null;
+              })
+          : null;
+      const persistedAudioUrl =
+        uploadedAudioUrl || existing?.meta?.audioUrl || undefined;
+      if (uploadedAudioUrl) {
+        this.logger.log(
+          `uploadAudio: URL persistida em meta.audioUrl — ${uploadedAudioUrl}`,
+        );
+        await stage('uploadAudio', 'completed', 72, { cacheHit: false });
+      } else if (storageProvider === 's3') {
+        const errMsg = persistedAudioUrl
+          ? 'Upload S3 falhou; mantida URL de áudio existente na faixa.'
+          : 'Upload S3 falhou; meta.audioUrl ficará vazio.';
+        this.logger.warn(`uploadAudio: ${errMsg} trackId=${trackId}`);
+        await stage('uploadAudio', 'failed', 72, { error: errMsg });
+      } else {
+        await stage('uploadAudio', 'completed', 72, { cacheHit: false });
+      }
 
       const songSlug =
         existing?.slug ??
@@ -357,10 +387,7 @@ export class IngestService {
         sections,
         lyrics,
         lyricsSource,
-        meta: this.withUploadedAudioUrl(
-          mergedMeta,
-          uploadedAudioUrl || existing?.meta?.audioUrl,
-        ),
+        meta: this.withUploadedAudioUrl(mergedMeta, persistedAudioUrl),
         userId: auth0Sub,
         owner: auth0Sub,
         variationKey: variationOfTrackId ? auth0Sub : '__base__',

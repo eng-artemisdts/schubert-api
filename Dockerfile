@@ -1,19 +1,20 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
+
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN npm run build && npm prune --omit=dev
+RUN pnpm run build && pnpm prune --prod
 
 FROM node:22-alpine
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN apk add --no-cache python3 py3-pip ffmpeg \
-  && pip3 install --no-cache-dir yt-dlp \
+RUN apk add --no-cache ffmpeg yt-dlp \
   && mkdir -p /tmp/schubert-stream-extract \
   && chmod 777 /tmp/schubert-stream-extract
 
